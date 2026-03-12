@@ -1,7 +1,8 @@
 from agno.agent import Agent
 from agno.models.groq import Groq
 from textwrap import dedent
-
+from dotenv import load_dotenv
+load_dotenv()
 
 query_analyzer = Agent(
     model=Groq(id="openai/gpt-oss-120b"),

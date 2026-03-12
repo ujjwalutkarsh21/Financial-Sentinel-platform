@@ -2,7 +2,8 @@ from agno.agent import Agent
 from agno.models.groq import Groq
 from agno.tools.duckduckgo import DuckDuckGoTools
 from textwrap import dedent
-
+from dotenv import load_dotenv
+load_dotenv()
 
 news_agent = Agent(
     model=Groq(id="openai/gpt-oss-120b"),
