@@ -1,6 +1,6 @@
 from agno.agent import Agent
 from tools.market_tool import get_stock_data
-from tools.news_tool import search_news
+# from tools.news_tool import search_news <- not using right now, inbuilt function is working better
 from agno.models.groq import Groq
 from dotenv import load_dotenv
 from agno.tools.duckduckgo import DuckDuckGoTools
@@ -20,6 +20,10 @@ stock_agent = Agent(
         2. Do NOT invent numbers or events.
         3. Only explain stock movements based on tool outputs.
         4. If information is insufficient, say "insufficient data" instead of guessing.
+        5. Call each tool at most once per user query.
+        6. For news, use a short query like "<company> stock news".
+        7. If a tool fails or returns no results, do not retry repeatedly; continue with available data.
+        8. Never print internal errors, stack traces, or tool warnings in the final answer.
 
         Output format:
 
@@ -38,7 +42,9 @@ stock_agent = Agent(
         DuckDuckGoTools(
             enable_search=True,
             enable_news=True,
-            fixed_max_results=5
+            fixed_max_results=5,
+            backend="auto",
+            timeout=20,
         )
     ],
 )
