@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 stock_agent = Agent(
+    model=Groq(id="openai/gpt-oss-120b"),
     name="Stock Movement Analyst",
 
     instructions="""
