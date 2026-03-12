@@ -1,3 +1,5 @@
+#this tool is not currently in function as we have used inbuilt ddgs tool from agno agent for better response
+
 from ddgs import DDGS
 
 
@@ -18,7 +20,7 @@ def search_news(company: str):
                 "link": r.get("url", "")
             })
 
-    print("articles -------------------------------------")
-    print(articles)
+    # print("articles -------------------------------------") #just checking if the tool is working or not
+    # print(articles)
 
     return articles[:3]

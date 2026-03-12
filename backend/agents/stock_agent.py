@@ -3,6 +3,7 @@ from tools.market_tool import get_stock_data
 from tools.news_tool import search_news
 from agno.models.groq import Groq
 from dotenv import load_dotenv
+from agno.tools.duckduckgo import DuckDuckGoTools
 
 load_dotenv()
 
@@ -32,5 +33,12 @@ stock_agent = Agent(
         (explain in depth likely reason for stock movement based on above data)
         """,
 
-    tools=[get_stock_data, search_news],
+    tools=[
+        get_stock_data,
+        DuckDuckGoTools(
+            enable_search=True,
+            enable_news=True,
+            fixed_max_results=5
+        )
+    ],
 )
