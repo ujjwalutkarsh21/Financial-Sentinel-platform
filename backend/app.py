@@ -1,4 +1,6 @@
-from agents.stock_agent import stock_agent
+from agents.aggregator_agent import aggregator_agent
+from agents.market_Agent import market_agent
+from agents.news_agent import news_agent
 from utils.query_analyzer import analyze_query
 
 def main():
@@ -23,9 +25,19 @@ def main():
             Use this structured data to answer the question.
             """
 
-        response = stock_agent.run(structured_prompt)
+        # response = stock_agent.run(structured_prompt)
         # response = stock_agent.run(query)
-        print("\n structure query:", structured_query)
+        market_result = market_agent.run(structured_prompt)
+        news_result = news_agent.run(structured_prompt)
+
+        combined_input = f"""
+        user query : {structured_prompt}
+        Market Agent output: {market_result.content}
+        News Agent output: {news_result.content}
+        """
+        response = aggregator_agent.run(combined_input)
+
+        # print("\n structure query:", structured_query)
         print("\nAI Analysis:\n")
         print(response.content)
 
