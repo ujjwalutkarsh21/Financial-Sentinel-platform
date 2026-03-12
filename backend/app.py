@@ -16,7 +16,7 @@ def main():
         response = stock_agent.run(query)
 
         print("\nAI Analysis:\n")
-        print(response)
+        print(response.content)
 
 
 if __name__ == "__main__":
