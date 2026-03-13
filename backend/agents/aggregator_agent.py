@@ -1,11 +1,12 @@
 from agno.agent import Agent
-from agno.models.groq import Groq
+from agno.models.google import Gemini
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
 
 aggregator_agent = Agent(
-    model=Groq(id="openai/gpt-oss-120b"),
+    # model=Groq(id="openai/gpt-oss-120b"),
+    model=Gemini(id="gemini-2.5-flash"),
 
     instructions=dedent("""
     You are a financial analysis aggregator.
