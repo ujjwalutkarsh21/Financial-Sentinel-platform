@@ -2,6 +2,7 @@ from agents.aggregator_agent import aggregator_agent
 from agents.market_Agent import market_agent
 from agents.news_agent import news_agent
 from agents.sentiment_agent import sentiment_agent
+from agents.validator_agent import validate_analysis
 
 from utils.sentiment_prompt import build_sentiment_prompt
 from utils.query_analyzer import analyze_query
@@ -45,11 +46,21 @@ def main():
         Sentiment Analysis: {sentiment_result}
         """
         response = aggregator_agent.run(combined_input)
-
+        
+        #validating the output via validator agent
+        analysis = response.content
+        validation = validate_analysis(analysis)
+        
         # print("\n structure query:", structured_query)
         print("\nAI Analysis:\n")
         print(response.content)
+        print("\nValidation Report:\n")
 
+        print(validation["validation_status"])
+
+        print("Reason:", validation["reason"])
+
+        print("Confidence:", validation["confidence"])
 
 if __name__ == "__main__":
     main()
