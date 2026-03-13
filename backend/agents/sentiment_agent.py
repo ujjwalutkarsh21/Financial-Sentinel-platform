@@ -1,5 +1,5 @@
 from agno.agent import Agent
-from agno.models.groq import Groq
+from agno.models.google import Gemini
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -12,7 +12,7 @@ sentiment_agent = Agent(
     and determine the overall sentiment.
     """,
 
-    model=Groq(id="openai/gpt-oss-120b"),
+    model=Gemini(id="gemini-2.5-flash-lite"),
 
     instructions=[
         "Read the financial news headlines carefully.",

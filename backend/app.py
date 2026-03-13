@@ -63,36 +63,36 @@ def main():
 
         print("Confidence:", validation["confidence"])
         
-    # --- NEW: Trigger RAG if signals conflict ---
-    if validation.get("validation_status") == "divergence":
+        # --- NEW: Trigger RAG if signals conflict ---
+        if validation["validation_status"] == "divergence":
 
-        print("\nDivergence detected. Running deeper research...\n")
+            print("\nDivergence detected. Running deeper research...\n")
 
-        research_result = research_agent.run(query)
+            research_result = research_agent.run(query)
 
-        research_text = research_result.content
+            research_text = research_result.content
 
-        print("\nResearch Insights:\n")
-        print(research_text)
+            print("\nResearch Insights:\n")
+            print(research_text)
 
-        # Re-run aggregator with research context
-        reanalysis_input = f"""
-        Original user query:
-        {query}
+            # Re-run aggregator with research context
+            reanalysis_input = f"""
+            Original user query:
+            {query}
 
-        Initial analysis:
-        {analysis}
+            Initial analysis:
+            {analysis}
 
-        Research insights from financial documents:
-        {research_text}
+            Research insights from financial documents:
+            {research_text}
 
-        Provide an updated financial analysis.
-        """
+            Provide an updated financial analysis.
+            """
 
-        updated_response = aggregator_agent.run(reanalysis_input)
+            updated_response = aggregator_agent.run(reanalysis_input)
 
-        print("\nUpdated Analysis After Research:\n")
-        print(updated_response.content)
+            print("\nUpdated Analysis After Research:\n")
+            print(updated_response.content)
 
 if __name__ == "__main__":
     main()

@@ -1,12 +1,12 @@
 from agno.agent import Agent
-from agno.models.groq import Groq
+from agno.models.google import Gemini
 from textwrap import dedent
 from tools.market_tool import get_stock_data
 from dotenv import load_dotenv
 load_dotenv()
 
 market_agent = Agent(
-    model=Groq(id="openai/gpt-oss-120b"),
+    model=Gemini(id="gemini-2.5-flash-lite"),
 
     tools=[get_stock_data],
 
