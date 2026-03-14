@@ -1,12 +1,12 @@
 from agno.agent import Agent
-from agno.models.google import Gemini
+from agno.models.nvidia import Nvidia
 from textwrap import dedent
 from tools.market_tool import get_stock_data
 from dotenv import load_dotenv
 load_dotenv()
 
 market_agent = Agent(
-    model=Gemini(id="gemini-2.5-flash-lite"),
+    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
     tools=[get_stock_data],
 

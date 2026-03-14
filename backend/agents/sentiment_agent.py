@@ -1,5 +1,5 @@
 from agno.agent import Agent
-from agno.models.google import Gemini
+from agno.models.nvidia import Nvidia
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -12,7 +12,7 @@ sentiment_agent = Agent(
     and determine the overall sentiment.
     """,
 
-    model=Gemini(id="gemini-2.5-flash-lite"),
+    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
     instructions=[
         "Read the financial news headlines carefully.",

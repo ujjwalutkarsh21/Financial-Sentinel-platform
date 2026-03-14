@@ -1,12 +1,13 @@
 from agno.agent import Agent
-from agno.models.google import Gemini
+from agno.models.nvidia import Nvidia
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
 
 aggregator_agent = Agent(
     # model=Groq(id="openai/gpt-oss-120b"),
-    model=Gemini(id="gemini-2.5-flash"),
+    # model=Gemini(id="gemini-2.5-flash"),
+    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
     instructions=dedent("""
     You are a financial analysis aggregator.

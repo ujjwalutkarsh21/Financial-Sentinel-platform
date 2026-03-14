@@ -3,6 +3,7 @@ from agno.agent import Agent
 from agno.knowledge.knowledge import Knowledge
 from agno.knowledge.reader.pdf_reader import PDFReader
 from agno.models.google import Gemini
+from agno.models.nvidia import Nvidia
 from agno.vectordb.lancedb import LanceDb, SearchType
 from dotenv import load_dotenv
 load_dotenv()
@@ -25,7 +26,7 @@ research_kb.insert(path="knowledge/", reader=PDFReader())
 # 3. Create the agent
 research_agent = Agent(
     name="Financial Research Analyst",
-    model=Gemini(id="gemini-2.5-flash"),
+    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
     instructions=dedent("""\
         You are a financial research analyst.
         Use retrieved financial documents to analyze:

@@ -68,7 +68,7 @@ def main():
 
             print("\nDivergence detected. Running deeper research...\n")
 
-            research_result = research_agent.run(query)
+            research_result = research_agent.run(f"From financial documents analyze Nvidia fundamentals: revenue trends, earnings guidance, risks based on provided {query}")
 
             research_text = research_result.content
 

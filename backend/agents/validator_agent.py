@@ -1,5 +1,5 @@
 from agno.agent import Agent
-from agno.models.google import Gemini
+from agno.models.nvidia import Nvidia
 from textwrap import dedent
 import json
 import re
@@ -10,7 +10,7 @@ validator_agent = Agent(
 
     name="Financial Signal Validator",
 
-    model=Gemini(id="gemini-2.5-flash-lite"),
+    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
     instructions=dedent("""
         You are a financial validation system.
