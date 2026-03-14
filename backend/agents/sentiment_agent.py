@@ -14,12 +14,12 @@ sentiment_agent = Agent(
 
     model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
-    instructions=[
-        "Read the financial news headlines carefully.",
-        "Classify each headline as Bullish, Neutral, or Bearish.",
-        "Count how many headlines fall into each category.",
-        "Compute a sentiment score between -1 and +1.",
-        "Return structured JSON only."
+    instructions = [
+    "Classify each headline as Bullish, Neutral, or Bearish.",
+    "Count the number of headlines in each category.",
+    "Compute a sentiment score between -1 and +1.",
+    "Return structured JSON only.",
+    "Do not explain anything outside JSON."
     ],
 
     markdown=True

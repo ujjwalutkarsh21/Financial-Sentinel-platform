@@ -4,7 +4,7 @@ from agno.tools.duckduckgo import DuckDuckGoTools
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
-
+from backend.instructions.instructions import news_agent
 news_agent = Agent(
     model=Groq(id="openai/gpt-oss-120b"),
 
@@ -16,16 +16,7 @@ news_agent = Agent(
         )
     ],
 
-    instructions=dedent("""
-    You are a financial news analyst.
-
-    Find the most recent news affecting a stock.
-
-    Summarize the top headlines and explain
-    whether they are bullish, bearish, or neutral.
-
-    Always call search_news before answering.
-    """),
+    instructions=news_agent,
 
     markdown=True
 )

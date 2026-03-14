@@ -7,6 +7,7 @@ from agno.models.nvidia import Nvidia
 from agno.vectordb.lancedb import LanceDb, SearchType
 from dotenv import load_dotenv
 load_dotenv()
+from backend.instructions.instructions import research_agent
 
 # 1. Create knowledge with a vector DB
 from agno.knowledge.embedder.google import GeminiEmbedder
@@ -27,17 +28,7 @@ research_kb.insert(path="knowledge/", reader=PDFReader())
 research_agent = Agent(
     name="Financial Research Analyst",
     model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
-    instructions=dedent("""\
-        You are a financial research analyst.
-        Use retrieved financial documents to analyze:
-        - revenue trends
-        - earnings guidance
-        - risks
-        - strategic initiatives
-        Focus only on information present in the documents.
-        Do not invent financial data.
-        Provide concise insights useful for stock analysis.
-    """),
+    instructions=research_agent,
     knowledge=research_kb,
     search_knowledge=True,
     markdown=True,

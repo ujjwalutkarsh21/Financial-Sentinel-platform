@@ -5,6 +5,7 @@ import json
 import re
 from dotenv import load_dotenv
 load_dotenv()
+from backend.instructions.instructions import vaalidator_agent
 
 validator_agent = Agent(
 
@@ -12,32 +13,7 @@ validator_agent = Agent(
 
     model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 
-    instructions=dedent("""
-        You are a financial validation system.
-
-        Your job is to verify whether financial signals agree or contradict.
-
-        Inputs you will receive:
-        - Market data summary
-        - News signals
-        - Sentiment analysis
-        - Aggregated explanation
-
-        Tasks:
-        1. Check if market movement matches sentiment.
-        2. Check if news signals support the market move.
-        3. Detect contradictions.
-
-        Return JSON only.
-
-        Schema:
-
-        {
-         "validation_status": "aligned | divergence | uncertain",
-         "reason": "short explanation",
-         "confidence": "high | medium | low"
-        }
-    """),
+    instructions=vaalidator_agent,
 
     markdown=False
 )
