@@ -3,7 +3,7 @@ from agno.models.nvidia import Nvidia
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
-from backend.instructions.instructions import aggregator_agent
+from instructions.instructions import aggregator_agent
 
 aggregator_agent = Agent(
     # model=Groq(id="openai/gpt-oss-120b"),

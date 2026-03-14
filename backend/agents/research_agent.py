@@ -7,7 +7,7 @@ from agno.models.nvidia import Nvidia
 from agno.vectordb.lancedb import LanceDb, SearchType
 from dotenv import load_dotenv
 load_dotenv()
-from backend.instructions.instructions import research_agent
+from instructions.instructions import research_agent
 
 # 1. Create knowledge with a vector DB
 from agno.knowledge.embedder.google import GeminiEmbedder

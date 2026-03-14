@@ -4,7 +4,7 @@ from textwrap import dedent
 from tools.market_tool import get_stock_data
 from dotenv import load_dotenv
 load_dotenv()
-from backend.instructions.instructions import market_agent
+from instructions.instructions import market_agent
 
 market_agent = Agent(
     model=Groq(id="openai/gpt-oss-120b"),

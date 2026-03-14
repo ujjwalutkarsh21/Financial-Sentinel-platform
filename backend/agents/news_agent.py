@@ -4,7 +4,7 @@ from agno.tools.duckduckgo import DuckDuckGoTools
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
-from backend.instructions.instructions import news_agent
+from instructions.instructions import news_agent
 news_agent = Agent(
     model=Groq(id="openai/gpt-oss-120b"),
 

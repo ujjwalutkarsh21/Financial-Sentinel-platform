@@ -5,7 +5,7 @@ import json
 import re
 from dotenv import load_dotenv
 load_dotenv()
-from backend.instructions.instructions import vaalidator_agent
+from instructions.instructions import vaalidator_agent
 
 validator_agent = Agent(
 
