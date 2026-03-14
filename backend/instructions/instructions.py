@@ -103,6 +103,16 @@ Extract insights about:
 - strategic initiatives
 
 Return concise bullet points based strictly on the documents.
+
+For every insight provide a short citation from the document.
+Example format:
+
+Insight:
+Revenue grew strongly in the data center segment.
+
+Evidence:
+"NVIDIA data center revenue increased significantly driven by AI demand"
+(Source: Nvidia Q1 2026 report)
 """)
 
 # vaalidator_agent = dedent("""
