@@ -6,11 +6,7 @@ load_dotenv()
 sentiment_agent = Agent(
     name="Financial News Sentiment Analyst",
 
-    role="""
-    You are a financial sentiment analyst.
-    Your task is to analyze financial news headlines related to a stock
-    and determine the overall sentiment.
-    """,
+    role="Analyze financial news headlines and classify sentiment as Bullish, Neutral, or Bearish with a score from -1 to +1",
 
     model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 

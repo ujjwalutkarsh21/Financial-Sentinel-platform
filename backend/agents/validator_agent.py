@@ -9,6 +9,7 @@ load_dotenv()
 validator_agent = Agent(
 
     name="Financial Signal Validator",
+    role="Cross-reference all agent findings to detect contradictions between market data, news sentiment, and document research",
 
     model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
 

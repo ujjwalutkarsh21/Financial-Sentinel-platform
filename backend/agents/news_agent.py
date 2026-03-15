@@ -4,8 +4,11 @@ from agno.tools.duckduckgo import DuckDuckGoTools
 from textwrap import dedent
 from dotenv import load_dotenv
 load_dotenv()
-from instructions.instructions import news_agent
+from instructions.instructions import news_agent as news_agent_instructions
+
 news_agent = Agent(
+    name="News Agent",
+    role="Search for the latest financial news headlines using DuckDuckGo",
     model=Groq(id="openai/gpt-oss-120b"),
 
     tools=[
@@ -16,7 +19,7 @@ news_agent = Agent(
         )
     ],
 
-    instructions=news_agent,
+    instructions=news_agent_instructions,
 
-    markdown=True
+    markdown=True,
 )
