@@ -1,8 +1,10 @@
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.models.groq import Groq
+from agno.models.nvidia import Nvidia
 from dotenv import load_dotenv
 load_dotenv()
+
+from agno.db.sqlite import SqliteDb
 
 from agents.market_Agent import market_agent
 from agents.news_agent import news_agent
@@ -31,13 +33,20 @@ from agents.validator_agent import validator_agent
 #      → Leader synthesizes final report
 # =====================================================================
 
+db = SqliteDb(db_file="tmp/agno_memory.db")
+
 financial_sentinel = Team(
 
     name="Corp8AI Financial Sentinel",
 
     mode=TeamMode.coordinate,
 
-    model=Groq(id="openai/gpt-oss-120b"),
+    db=db,
+    update_memory_on_run=True,
+    read_chat_history=True,
+    add_history_to_context=True,
+
+    model=Nvidia(id="microsoft/phi-3-medium-128k-instruct"),
 
     members=[
         market_agent,

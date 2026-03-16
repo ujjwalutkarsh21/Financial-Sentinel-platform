@@ -34,7 +34,7 @@ research_kb = Knowledge(
 )
 
 # 2. Insert PDFs from your directory
-research_kb.insert(path="knowledge/", reader=PDFReader()) #no need to run it again after creating indexing once
+# research_kb.insert(path="knowledge/", reader=PDFReader()) #no need to run it again after creating indexing once
 
 # 3. Create the agent
 # research_agent = Agent(

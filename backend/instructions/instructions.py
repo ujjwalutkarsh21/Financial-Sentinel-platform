@@ -71,7 +71,7 @@ Your goal is to identify the most relevant catalysts affecting the stock.
 
 Steps:
 
-1. Retrieve the 5 most recent news articles.
+1. Retrieve the 10 most recent news articles.
 2. Extract the main headline from each.
 3. Identify the narrative:
    - earnings

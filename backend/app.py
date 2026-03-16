@@ -1,4 +1,4 @@
-from agents.team_orchestrator import financial_sentinel
+from agents.team_orchestrator import financial_sentinel, db
 
 
 # =====================================================================
@@ -26,19 +26,28 @@ def main():
     print("  Type 'exit' or 'quit' to stop.")
     print("-" * 55)
 
+    import uuid
+    session_id = str(uuid.uuid4())
+
     while True:
 
         query = input("\n📊 Ask a question: ")
 
         if query.strip().lower() in ["exit", "quit"]:
             print("\nGoodbye!\n")
+            try:
+                db.delete_session(session_id=session_id)
+                db.clear_memories()
+                print("Internal memory cleared for you!")
+            except Exception as e:
+                pass
             break
 
         if not query.strip():
             continue
 
         print()
-        financial_sentinel.print_response(query, stream=True)
+        financial_sentinel.print_response(query, stream=True, user_id="user_123", session_id=session_id)
 
 
 if __name__ == "__main__":
