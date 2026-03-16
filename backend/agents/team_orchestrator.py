@@ -1,6 +1,6 @@
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.models.nvidia import Nvidia
+from agno.models.groq import Groq
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -46,7 +46,7 @@ financial_sentinel = Team(
     read_chat_history=True,
     add_history_to_context=True,
 
-    model=Nvidia(id="microsoft/phi-3-medium-128k-instruct"),
+    model=Groq(id="openai/gpt-oss-120b"),
 
     members=[
         market_agent,
