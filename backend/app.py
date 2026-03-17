@@ -7,7 +7,8 @@ from rich.rule import Rule
 from rich.table import Table
 from rich import print as rprint
 
-from agents.team_orchestrator import financial_sentinel, db
+from agents.research_agent import create_research_agent
+from agents.team_orchestrator import create_financial_sentinel, db
 
 console = Console()
 
@@ -169,6 +170,10 @@ def main():
 
     session_id = str(uuid.uuid4())
     user_id = "user_123"
+
+    # Build a session-scoped team (research agent gets its own LanceDB table)
+    research_agent = create_research_agent(session_id)
+    financial_sentinel = create_financial_sentinel(research_agent)
 
     while True:
         console.print()

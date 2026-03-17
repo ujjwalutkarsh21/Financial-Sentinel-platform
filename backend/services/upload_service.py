@@ -12,6 +12,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # In-memory mapping: session_id → { fileId → {path, name, size} }
 _file_registry: dict[str, dict[str, dict]] = {}
 
+# Tracks file_ids that have already been embedded into LanceDB
+_indexed_files: set[str] = set()
+
 
 async def save_file(file: UploadFile, session_id: str) -> UploadResponse:
     """Save an uploaded file and register it under the given session."""
@@ -57,3 +60,22 @@ def remove_file(file_id: str, session_id: str) -> bool:
     """Remove a file from a session's registry."""
     session_files = _file_registry.get(session_id, {})
     return session_files.pop(file_id, None) is not None
+
+
+# ── Indexing helpers (used by ingestion_service) ──────────────────────
+
+def is_indexed(file_id: str) -> bool:
+    """Return True if this file has already been embedded into LanceDB."""
+    return file_id in _indexed_files
+
+
+def mark_indexed(file_id: str) -> None:
+    """Record that a file has been successfully embedded."""
+    _indexed_files.add(file_id)
+
+
+def get_file_name(file_id: str, session_id: str) -> str | None:
+    """Return the original filename for a given file_id, or None."""
+    session_files = _file_registry.get(session_id, {})
+    entry = session_files.get(file_id)
+    return entry["name"] if entry else None
