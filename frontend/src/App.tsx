@@ -1,0 +1,722 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  Send, 
+  Paperclip, 
+  X, 
+  FileText, 
+  Table, 
+  File as FileIcon, 
+  Settings, 
+  Plus, 
+  MessageSquare, 
+  TrendingUp, 
+  AlertCircle, 
+  CheckCircle2,
+  ChevronRight,
+  Search,
+  Cpu,
+  Database,
+  Globe
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import ReactMarkdown from 'react-markdown';
+import { v4 as uuidv4 } from 'uuid';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// === UTILS ===
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// === API INTEGRATION POINTS ===
+/**
+ * sendMessage(text, files) → POST /api/chat
+ * uploadFile(file) → POST /api/upload
+ * streamResponse(messageId) → SSE /api/stream/:id
+ * confirmTicker(ticker) → POST /api/hitl/confirm
+ */
+
+// === TYPES ===
+interface FileObject {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  uploadedAt: Date;
+  file?: File;
+}
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  files?: FileObject[];
+  data?: any;
+  sources?: string[];
+  isStreaming?: boolean;
+  hitl?: {
+    type: 'ticker_confirmation';
+    ticker: string;
+  };
+}
+
+interface Session {
+  id: string;
+  name: string;
+  timestamp: Date;
+  type: 'research' | 'data' | 'upload';
+}
+
+// === MOCK DATA ===
+const MOCK_SESSIONS: Session[] = [
+  { id: '1', name: 'Tesla Growth Analysis', timestamp: new Date(Date.now() - 3600000), type: 'data' },
+  { id: '2', name: 'Apple Q4 Risk Review', timestamp: new Date(Date.now() - 86400000), type: 'research' },
+  { id: '3', name: 'Portfolio Rebalancing', timestamp: new Date(Date.now() - 172800000), type: 'upload' },
+];
+
+const MOCK_UPLOADED_FILES: FileObject[] = [
+  { id: 'f1', name: 'AAPL_10K_2023.pdf', size: 2400000, type: 'application/pdf', uploadedAt: new Date() },
+  { id: 'f2', name: 'Portfolio_Holdings.csv', size: 48000, type: 'text/csv', uploadedAt: new Date() },
+];
+
+const INITIAL_MESSAGES: Message[] = [
+  {
+    id: 'm1',
+    role: 'user',
+    content: "What is Tesla's current P/E ratio and how does it compare to the EV sector?",
+    timestamp: new Date(Date.now() - 100000),
+  },
+  {
+    id: 'm2',
+    role: 'assistant',
+    content: "Tesla's current valuation remains significantly higher than the broader automotive and EV sector averages, reflecting its market-leader status and software-driven margins.",
+    timestamp: new Date(Date.now() - 95000),
+    data: {
+      metrics: [
+        { label: 'TSLA P/E', value: '72.4', trend: 'up' },
+        { label: 'Sector Avg', value: '48.1', trend: 'neutral' },
+        { label: 'Premium', value: '+50.6%', trend: 'up', highlight: true },
+      ]
+    },
+    sources: ['Live Market Data'],
+  },
+  {
+    id: 'm3',
+    role: 'user',
+    content: "Summarize the key risks from AAPL's latest 10-K",
+    timestamp: new Date(Date.now() - 80000),
+    files: [MOCK_UPLOADED_FILES[0]],
+  },
+  {
+    id: 'm4',
+    role: 'assistant',
+    content: "Based on Apple's FY2023 10-K filing, the company identifies several critical risk factors that could materially impact financial performance:\n\n1. **Supply Chain Concentration**: Heavy reliance on manufacturing partners in specific geographic regions, particularly China.\n2. **Regulatory Headwinds**: Increasing scrutiny over App Store policies and digital services in the EU and US.\n3. **Macroeconomic Volatility**: Currency fluctuations and consumer spending shifts in key emerging markets.",
+    timestamp: new Date(Date.now() - 75000),
+    sources: ['AAPL_10K_2023.pdf'],
+  },
+  {
+    id: 'm5',
+    role: 'user',
+    content: "What's the revenue growth trend for NVDA over last 3 years?",
+    timestamp: new Date(Date.now() - 50000),
+  },
+  {
+    id: 'm6',
+    role: 'assistant',
+    content: "NVIDIA has shown exponential revenue growth, primarily driven by the massive surge in Data Center demand for AI training and inference hardware.",
+    timestamp: new Date(Date.now() - 45000),
+    data: {
+      table: {
+        headers: ['Year', 'Revenue ($B)', 'Growth (%)'],
+        rows: [
+          ['2024 (Est)', '60.9', '+126%'],
+          ['2023', '26.9', '+0.2%'],
+          ['2022', '26.9', '+61%'],
+        ]
+      }
+    },
+    sources: ['Live Market Data'],
+  }
+];
+
+// === COMPONENTS ===
+
+const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => void }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (index < text.length) {
+      const timeout = setTimeout(() => {
+        setDisplayedText(prev => prev + text[index]);
+        setIndex(prev => prev + 1);
+      }, 15);
+      return () => clearTimeout(timeout);
+    } else if (onComplete) {
+      onComplete();
+    }
+  }, [index, text, onComplete]);
+
+  return (
+    <div className="relative">
+      <ReactMarkdown>{displayedText}</ReactMarkdown>
+      {index < text.length && (
+        <span className="inline-block w-1.5 h-4 bg-[#00FF85] ml-1 animate-pulse align-middle" />
+      )}
+    </div>
+  );
+};
+
+const MetricCard = ({ label, value, trend, highlight }: { label: string, value: string, trend: string, highlight?: boolean }) => (
+  <div className={cn(
+    "p-3 border border-white/10 bg-[#121418] flex flex-col gap-1",
+    highlight && "border-[#00FF85]/30 bg-[#00FF85]/5"
+  )}>
+    <span className="text-[10px] font-mono uppercase text-white/40 tracking-wider">{label}</span>
+    <div className="flex items-center justify-between">
+      <span className={cn(
+        "text-lg font-mono font-bold",
+        highlight ? "text-[#00FF85]" : "text-[#E8EDF2]"
+      )}>{value}</span>
+      {trend === 'up' && <TrendingUp size={14} className="text-[#00FF85]" />}
+    </div>
+  </div>
+);
+
+const DataTable = ({ headers, rows }: { headers: string[], rows: string[][] }) => (
+  <div className="w-full overflow-x-auto border border-white/10 mt-4">
+    <table className="w-full text-left font-mono text-xs">
+      <thead>
+        <tr className="bg-white/5 border-b border-white/10">
+          {headers.map((h, i) => (
+            <th key={i} className="p-2 uppercase text-white/40 font-medium">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
+            {row.map((cell, j) => (
+              <td key={j} className="p-2 text-[#E8EDF2]">{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+export default function StockMindChat() {
+  // === STATE ===
+  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  const [inputText, setInputText] = useState('');
+  const [attachedFiles, setAttachedFiles] = useState<FileObject[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>(MOCK_UPLOADED_FILES);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [sessions, setSessions] = useState<Session[]>(MOCK_SESSIONS);
+  const [activeSessionId, setActiveSessionId] = useState('1');
+  const [isDragging, setIsDragging] = useState(false);
+  const [agentStatus, setAgentStatus] = useState({
+    data: true,
+    research: false,
+    rag: false
+  });
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // === EFFECTS ===
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // === HANDLERS ===
+  const handleSendMessage = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!inputText.trim() && attachedFiles.length === 0) return;
+
+    const newMessage: Message = {
+      id: uuidv4(),
+      role: 'user',
+      content: inputText,
+      timestamp: new Date(),
+      files: attachedFiles,
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+    setInputText('');
+    
+    // Move attached to uploaded
+    if (attachedFiles.length > 0) {
+      setUploadedFiles(prev => [...prev, ...attachedFiles]);
+      setAttachedFiles([]);
+    }
+
+    // Simulate AI Response
+    setIsStreaming(true);
+    setAgentStatus({ data: true, research: true, rag: attachedFiles.length > 0 });
+
+    setTimeout(() => {
+      const responseId = uuidv4();
+      const aiResponse: Message = {
+        id: responseId,
+        role: 'assistant',
+        content: "I'm analyzing the requested data. Based on current market indicators and your provided documents, here is the synthesized outlook...",
+        timestamp: new Date(),
+        isStreaming: true,
+        sources: ['Live Market Data', ...(attachedFiles.length > 0 ? attachedFiles.map(f => f.name) : [])],
+      };
+      
+      // Check for HITL trigger (e.g., if user mentions a new stock)
+      if (inputText.toLowerCase().includes('meta') || inputText.toLowerCase().includes('google')) {
+        aiResponse.hitl = {
+          type: 'ticker_confirmation',
+          ticker: inputText.toLowerCase().includes('meta') ? 'META' : 'GOOGL'
+        };
+      }
+
+      setMessages(prev => [...prev, aiResponse]);
+      setIsStreaming(false);
+      setAgentStatus({ data: false, research: false, rag: false });
+    }, 1500);
+  };
+
+  const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newFiles: FileObject[] = files.map(f => ({
+      id: uuidv4(),
+      name: f.name,
+      size: f.size,
+      type: f.type,
+      uploadedAt: new Date(),
+      file: f
+    }));
+    setAttachedFiles(prev => [...prev, ...newFiles]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachedFile = (id: string) => {
+    setAttachedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const removeUploadedFile = (id: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    const newFiles: FileObject[] = files.map(f => ({
+      id: uuidv4(),
+      name: f.name,
+      size: f.size,
+      type: f.type,
+      uploadedAt: new Date(),
+      file: f
+    }));
+    setAttachedFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const handleTickerConfirm = (id: string, confirmed: boolean, newTicker?: string) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id === id) {
+        return { ...m, hitl: undefined, content: confirmed ? `Confirmed ticker: ${m.hitl?.ticker}. Resuming research...` : `Ticker corrected to: ${newTicker}. Resuming research...` };
+      }
+      return m;
+    }));
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="flex h-screen w-full bg-[#0A0C10] text-[#E8EDF2] overflow-hidden font-['Syne']">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;500;600;700;800&display=swap');
+        
+        body {
+          background-color: #0A0C10;
+          background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+          background-size: 24px 24px;
+        }
+
+        .font-mono {
+          font-family: 'Space Mono', monospace;
+        }
+
+        ::-webkit-scrollbar {
+          width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .scanline {
+          width: 100%;
+          height: 100px;
+          z-index: 10;
+          background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0) 100%);
+          opacity: 0.1;
+          position: absolute;
+          bottom: 100%;
+          animation: scanline 10s linear infinite;
+        }
+
+        @keyframes scanline {
+          0% { bottom: 100%; }
+          100% { bottom: -100px; }
+        }
+
+        .agent-pulse {
+          box-shadow: 0 0 8px rgba(0, 255, 133, 0.4);
+          animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+          0% { opacity: 0.6; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.1); }
+          100% { opacity: 0.6; transform: scale(1); }
+        }
+      `}</style>
+
+      {/* LEFT SIDEBAR */}
+      <aside className="hidden lg:flex flex-col w-[280px] border-r border-white/5 bg-[#080A0D] z-20">
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-8 h-8 bg-[#00FF85] flex items-center justify-center rounded-sm">
+            <TrendingUp size={20} className="text-[#0A0C10]" />
+          </div>
+          <h1 className="text-xl font-extrabold tracking-tighter text-[#00FF85]">STOCKMIND</h1>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 space-y-8">
+          {/* SESSIONS */}
+          <div>
+            <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">Active Sessions</h3>
+            <div className="space-y-1">
+              {sessions.map((session, idx) => (
+                <motion.button
+                  key={session.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  onClick={() => setActiveSessionId(session.id)}
+                  className={cn(
+                    "w-full group relative flex flex-col items-start p-3 transition-all hover:bg-white/5 border-l-2",
+                    activeSessionId === session.id ? "border-[#00FF85] bg-white/5" : "border-transparent"
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      session.type === 'research' ? "bg-blue-400" : session.type === 'data' ? "bg-[#00FF85]" : "bg-amber-400"
+                    )} />
+                    <span className="text-sm font-medium truncate w-40 text-left">{session.name}</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-white/20">{session.timestamp.toLocaleDateString()}</span>
+                </motion.button>
+              ))}
+            </div>
+          </div>
+
+          {/* UPLOADED FILES */}
+          <div>
+            <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">Uploaded Files</h3>
+            <div className="space-y-2">
+              <AnimatePresence>
+                {uploadedFiles.map((file) => (
+                  <motion.div
+                    key={file.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="p-3 bg-white/5 border border-white/5 flex items-center gap-3 group"
+                  >
+                    <div className="text-white/40">
+                      {file.type.includes('pdf') ? <FileText size={18} /> : <Table size={18} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{file.name}</p>
+                      <p className="text-[10px] font-mono text-white/20">{formatSize(file.size)}</p>
+                    </div>
+                    <button 
+                      onClick={() => removeUploadedFile(file.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
+                    >
+                      <X size={14} />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-white/5">
+          <button className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center gap-2 transition-all active:scale-95">
+            <Plus size={18} />
+            <span className="text-sm font-bold uppercase tracking-wider">New Chat</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN PANEL */}
+      <main className="flex-1 flex flex-col relative">
+        <div className="scanline" />
+        
+        {/* TOP BAR */}
+        <header className="h-12 border-b border-white/5 flex items-center justify-between px-6 bg-[#0A0C10]/80 backdrop-blur-md z-30">
+          <div className="flex items-center gap-4">
+            <h2 className="text-sm font-bold cursor-pointer hover:text-[#00FF85] transition-colors">
+              {sessions.find(s => s.id === activeSessionId)?.name || 'Untitled Session'}
+            </h2>
+            <div className="h-4 w-[1px] bg-white/10" />
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
+                agentStatus.data ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
+              )}>
+                <Database size={10} />
+                Data Agent
+              </div>
+              <div className={cn(
+                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
+                agentStatus.research ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
+              )}>
+                <Globe size={10} />
+                News Agent
+              </div>
+              <div className={cn(
+                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
+                agentStatus.rag ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
+              )}>
+                <Cpu size={10} />
+                RAG Agent
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <button className="text-white/40 hover:text-white transition-colors">
+              <Settings size={18} />
+            </button>
+          </div>
+        </header>
+
+        {/* CHAT AREA */}
+        <div 
+          className="flex-1 overflow-y-auto p-6 space-y-8 relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* DRAG OVERLAY */}
+          <AnimatePresence>
+            {isDragging && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 z-50 bg-[#0A0C10]/80 backdrop-blur-sm flex items-center justify-center p-12"
+              >
+                <div className="w-full h-full border-2 border-dashed border-[#00FF85] flex flex-col items-center justify-center gap-4 bg-[#00FF85]/5">
+                  <div className="w-16 h-16 rounded-full bg-[#00FF85]/10 flex items-center justify-center">
+                    <Plus size={32} className="text-[#00FF85]" />
+                  </div>
+                  <p className="text-xl font-bold uppercase tracking-widest text-[#00FF85]">Drop files to research</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {messages.map((msg, idx) => (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 20, x: msg.role === 'user' ? 20 : -20 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              transition={{ delay: 0.1 }}
+              className={cn(
+                "flex flex-col max-w-[85%] lg:max-w-[70%]",
+                msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+              )}
+            >
+              <div className={cn(
+                "p-4 relative",
+                msg.role === 'user' 
+                  ? "bg-[#121418] border-l-2 border-[#00FF85]" 
+                  : "bg-[#0E1014] border border-white/5"
+              )}>
+                <div className="text-sm leading-relaxed">
+                  {msg.isStreaming ? (
+                    <Typewriter text={msg.content} onComplete={() => {
+                      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m));
+                    }} />
+                  ) : (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  )}
+                </div>
+
+                {/* DATA CARDS */}
+                {msg.data?.metrics && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
+                    {msg.data.metrics.map((m: any, i: number) => (
+                      <MetricCard key={i} {...m} />
+                    ))}
+                  </div>
+                )}
+
+                {/* DATA TABLE */}
+                {msg.data?.table && (
+                  <DataTable {...msg.data.table} />
+                )}
+
+                {/* HITL TICKER CONFIRMATION */}
+                {msg.hitl?.type === 'ticker_confirmation' && (
+                  <div className="mt-4 p-4 border border-amber-500/30 bg-amber-500/5">
+                    <div className="flex items-center gap-2 mb-3 text-amber-500">
+                      <AlertCircle size={16} />
+                      <span className="text-xs font-bold uppercase tracking-wider">Ticker Confirmation Required</span>
+                    </div>
+                    <p className="text-sm mb-4">I've detected <span className="font-mono font-bold text-amber-400">"{msg.hitl.ticker}"</span>. Is this the correct ticker for your research?</p>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleTickerConfirm(msg.id, true)}
+                        className="px-4 py-2 bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition-all"
+                      >
+                        YES, PROCEED
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const t = prompt('Enter correct ticker:');
+                          if (t) handleTickerConfirm(msg.id, false, t);
+                        }}
+                        className="px-4 py-2 border border-amber-500/30 text-amber-500 text-xs font-bold hover:bg-amber-500/10 transition-all"
+                      >
+                        NO, CHANGE
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* SOURCES */}
+                {msg.sources && msg.sources.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
+                    {msg.sources.map((source, i) => (
+                      <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 text-[10px] font-mono text-white/40 border border-white/5">
+                        {source.includes('.pdf') ? <FileText size={10} /> : <Globe size={10} />}
+                        {source}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <span className="text-[9px] font-mono text-white/20 mt-2">
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </motion.div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* INPUT AREA */}
+        <div className="p-6 bg-gradient-to-t from-[#0A0C10] via-[#0A0C10] to-transparent">
+          <div className="max-w-4xl mx-auto relative">
+            <div className="bg-[#121418] border border-white/10 p-2 focus-within:border-[#00FF85]/50 transition-all">
+              
+              {/* FILE PREVIEW CHIPS */}
+              <AnimatePresence>
+                {attachedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-2 mb-2 border-b border-white/5">
+                    {attachedFiles.map((file) => (
+                      <motion.div
+                        key={file.id}
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        className="flex items-center gap-2 px-2 py-1 bg-[#00FF85]/10 border border-[#00FF85]/20 text-[#00FF85]"
+                      >
+                        <FileIcon size={12} />
+                        <span className="text-[10px] font-mono font-bold truncate max-w-[100px]">{file.name}</span>
+                        <button onClick={() => removeAttachedFile(file.id)} className="hover:text-white">
+                          <X size={12} />
+                        </button>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </AnimatePresence>
+
+              <div className="flex items-end gap-2">
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-3 text-white/40 hover:text-[#00FF85] transition-colors"
+                >
+                  <Paperclip size={20} />
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileAttach} 
+                  multiple 
+                  className="hidden" 
+                  accept=".pdf,.csv,.xlsx,.txt,.docx"
+                />
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Ask about a stock, market trend, or upload a report..."
+                  className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 font-mono resize-none min-h-[44px] max-h-[200px]"
+                  rows={1}
+                />
+                <button 
+                  onClick={() => handleSendMessage()}
+                  disabled={!inputText.trim() && attachedFiles.length === 0}
+                  className={cn(
+                    "p-3 transition-all active:scale-90",
+                    (inputText.trim() || attachedFiles.length > 0) ? "text-[#00FF85]" : "text-white/10"
+                  )}
+                >
+                  <Send size={20} />
+                </button>
+              </div>
+            </div>
+            <p className="text-[10px] text-white/20 mt-3 text-center uppercase tracking-widest">
+              Attach PDFs, CSVs, or reports for company-specific RAG analysis
+            </p>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
