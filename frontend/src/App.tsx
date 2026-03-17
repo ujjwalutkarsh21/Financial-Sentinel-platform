@@ -274,13 +274,16 @@ export default function StockMindChat() {
     files.forEach(f => uploadHook.upload(f));
   };
 
-  const handleTickerConfirm = (id: string, confirmed: boolean, newTicker?: string) => {
-    setMessages(prev => prev.map(m => {
-      if (m.id === id) {
-        return { ...m, hitl: undefined, content: confirmed ? `Confirmed ticker: ${m.hitl?.ticker}. Resuming research...` : `Ticker corrected to: ${newTicker}. Resuming research...` };
-      }
-      return m;
-    }));
+  const handleTickerConfirm = async () => {
+    await chat.confirmTicker(true);
+    setAgentStatus({ data: true, research: true, rag: false });
+    // Status will clear when response arrives
+  };
+
+  const handleTickerReject = async (newTicker: string) => {
+    if (!newTicker.trim()) return;
+    await chat.confirmTicker(false, newTicker.trim().toUpperCase());
+    setAgentStatus({ data: true, research: true, rag: false });
   };
 
   const formatSize = (bytes: number) => {
@@ -596,34 +599,6 @@ export default function StockMindChat() {
                   <DataTable {...msg.data.table} />
                 )}
 
-                {/* HITL TICKER CONFIRMATION */}
-                {msg.hitl?.type === 'ticker_confirmation' && (
-                  <div className="mt-4 p-4 border border-amber-500/30 bg-amber-500/5">
-                    <div className="flex items-center gap-2 mb-3 text-amber-500">
-                      <AlertCircle size={16} />
-                      <span className="text-xs font-bold uppercase tracking-wider">Ticker Confirmation Required</span>
-                    </div>
-                    <p className="text-sm mb-4">I've detected <span className="font-mono font-bold text-amber-400">"{msg.hitl.ticker}"</span>. Is this the correct ticker for your research?</p>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => handleTickerConfirm(msg.id, true)}
-                        className="px-4 py-2 bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition-all"
-                      >
-                        YES, PROCEED
-                      </button>
-                      <button 
-                        onClick={() => {
-                          const t = prompt('Enter correct ticker:');
-                          if (t) handleTickerConfirm(msg.id, false, t);
-                        }}
-                        className="px-4 py-2 border border-amber-500/30 text-amber-500 text-xs font-bold hover:bg-amber-500/10 transition-all"
-                      >
-                        NO, CHANGE
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 {/* SOURCES */}
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
@@ -648,6 +623,59 @@ export default function StockMindChat() {
         {/* INPUT AREA */}
         <div className="p-6 bg-gradient-to-t from-[#0A0C10] via-[#0A0C10] to-transparent">
           <div className="max-w-4xl mx-auto relative">
+
+            {/* HITL CONFIRMATION BANNER */}
+            <AnimatePresence>
+              {chat.hitlPending && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="mb-4 border border-amber-500/30 bg-amber-500/5 p-5"
+                >
+                  <div className="flex items-center gap-2 mb-3 text-amber-500">
+                    <AlertCircle size={18} />
+                    <span className="text-xs font-bold uppercase tracking-wider">Ticker Confirmation Required</span>
+                  </div>
+                  <p className="text-sm mb-4 text-white/70">
+                    I resolved <span className="font-mono font-bold text-white">"{chat.hitlRawInput}"</span> → <span className="font-mono font-bold text-amber-400 text-lg">{chat.hitlTicker}</span>
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleTickerConfirm}
+                      disabled={isStreaming}
+                      className="px-5 py-2.5 bg-[#00FF85] text-black text-xs font-bold uppercase tracking-wider hover:bg-[#00FF85]/80 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      ✓ Confirm {chat.hitlTicker}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="hitl-correction-input"
+                        type="text"
+                        placeholder="Enter correct ticker"
+                        className="bg-[#121418] border border-white/10 px-3 py-2 text-xs font-mono uppercase w-36 focus:border-amber-500/50 focus:outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const el = e.target as HTMLInputElement;
+                            handleTickerReject(el.value);
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          const el = document.getElementById('hitl-correction-input') as HTMLInputElement;
+                          if (el?.value) handleTickerReject(el.value);
+                        }}
+                        disabled={isStreaming}
+                        className="px-4 py-2.5 border border-amber-500/30 text-amber-500 text-xs font-bold uppercase tracking-wider hover:bg-amber-500/10 transition-all active:scale-95 disabled:opacity-50"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="bg-[#121418] border border-white/10 p-2 focus-within:border-[#00FF85]/50 transition-all">
               
               {/* FILE PREVIEW CHIPS */}

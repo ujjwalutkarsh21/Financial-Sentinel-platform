@@ -10,11 +10,46 @@ export function useChat(sessionId: string) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // HITL state
+  const [hitlPending, setHitlPending] = useState(false);
+  const [hitlTicker, setHitlTicker] = useState('');
+  const [hitlRawInput, setHitlRawInput] = useState('');
+  const [hitlRunId, setHitlRunId] = useState('');
+
+  /** Handle a ChatResponse — either final or HITL-pending */
+  const handleResponse = useCallback((response: any) => {
+    if (response.hitl_pending) {
+      setHitlPending(true);
+      setHitlTicker(response.hitl_ticker || '');
+      setHitlRawInput(response.hitl_raw_input || '');
+      setHitlRunId(response.hitl_run_id || '');
+
+      // Add an informational message
+      const infoMessage: Message = {
+        id: response.id,
+        role: 'assistant',
+        content: response.text,
+        timestamp: new Date(response.timestamp),
+      };
+      setMessages(prev => [...prev, infoMessage]);
+    } else {
+      setHitlPending(false);
+      const aiMessage: Message = {
+        id: response.id,
+        role: 'assistant',
+        content: response.text,
+        timestamp: new Date(response.timestamp),
+        sources: response.sources,
+        isStreaming: true,
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    }
+  }, []);
+
   /** Send a message and get the AI response */
   const sendMessage = useCallback(async (text: string, attachmentIds?: string[]) => {
     if (!text.trim() && (!attachmentIds || attachmentIds.length === 0)) return;
 
-    // Optimistic: add user message immediately
     const userMessage: Message = {
       id: uuidv4(),
       role: 'user',
@@ -31,22 +66,10 @@ export function useChat(sessionId: string) {
         session_id: sessionId,
         attachments: attachmentIds,
       });
-
-      const aiMessage: Message = {
-        id: response.id,
-        role: 'assistant',
-        content: response.text,
-        timestamp: new Date(response.timestamp),
-        sources: response.sources,
-        isStreaming: true, // triggers typewriter effect
-      };
-
-      setMessages(prev => [...prev, aiMessage]);
+      handleResponse(response);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Something went wrong';
       setError(errMsg);
-
-      // Add error message as assistant response
       const errorMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
@@ -57,9 +80,39 @@ export function useChat(sessionId: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId]);
+  }, [sessionId, handleResponse]);
 
-  /** Load chat history from the backend for the current session */
+  /** Confirm or reject a ticker during HITL */
+  const confirmTicker = useCallback(async (confirmed: boolean, correctedTicker?: string) => {
+    if (!hitlRunId) return;
+
+    setIsLoading(true);
+    setHitlPending(false);
+
+    try {
+      const response = await chatService.confirmTicker({
+        session_id: sessionId,
+        run_id: hitlRunId,
+        confirmed,
+        corrected_ticker: correctedTicker,
+      });
+      handleResponse(response);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Confirmation failed';
+      setError(errMsg);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: `⚠️ Error: ${errMsg}. Please try again.`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sessionId, hitlRunId, handleResponse]);
+
+  /** Load chat history from the backend */
   const loadHistory = useCallback(async () => {
     try {
       const history = await chatService.getHistory(sessionId);
@@ -72,7 +125,7 @@ export function useChat(sessionId: string) {
       }));
       setMessages(mapped);
     } catch {
-      // Silently fail — user starts with empty chat
+      // Silently fail
     }
   }, [sessionId]);
 
@@ -83,9 +136,10 @@ export function useChat(sessionId: string) {
     );
   }, []);
 
-  /** Clear all messages (used when switching sessions) */
+  /** Clear all messages */
   const clearMessages = useCallback(() => {
     setMessages([]);
+    setHitlPending(false);
   }, []);
 
   return {
@@ -97,5 +151,10 @@ export function useChat(sessionId: string) {
     loadHistory,
     markStreamingComplete,
     clearMessages,
+    // HITL
+    hitlPending,
+    hitlTicker,
+    hitlRawInput,
+    confirmTicker,
   };
 }

@@ -17,6 +17,18 @@ class ChatResponse(BaseModel):
     confidence: str = ""
     sources: list = []
     timestamp: str = ""
+    # ── HITL fields ──
+    hitl_pending: bool = False
+    hitl_ticker: str = ""
+    hitl_raw_input: str = ""
+    hitl_run_id: str = ""
+
+
+class HitlConfirmRequest(BaseModel):
+    session_id: str
+    run_id: str
+    confirmed: bool
+    corrected_ticker: Optional[str] = None
 
 
 class UploadResponse(BaseModel):

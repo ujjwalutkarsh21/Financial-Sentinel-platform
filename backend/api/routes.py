@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 
-from schemas.chat_schema import ChatRequest, ChatResponse, UploadResponse
+from schemas.chat_schema import ChatRequest, ChatResponse, UploadResponse, HitlConfirmRequest
 from services import analysis_service, upload_service, history_service
 
 router = APIRouter(prefix="/api")
@@ -77,3 +77,25 @@ async def reset_all():
         pass  # best-effort
 
     return {"status": "ok"}
+
+
+@router.post("/confirm", response_model=ChatResponse)
+async def confirm_ticker(request: HitlConfirmRequest):
+    """
+    Accept or reject a HITL ticker confirmation and resume the paused run.
+    """
+    try:
+        response = await analysis_service.process_confirm(
+            run_id=request.run_id,
+            session_id=request.session_id,
+            confirmed=request.confirmed,
+            corrected_ticker=request.corrected_ticker,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Record AI response in history
+    if not response.hitl_pending:
+        history_service.add_message(request.session_id, "assistant", response.text, response.sources)
+
+    return response

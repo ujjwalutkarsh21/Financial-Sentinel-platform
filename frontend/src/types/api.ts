@@ -15,6 +15,18 @@ export interface ChatResponse {
   confidence: string;
   sources: string[];
   timestamp: string;
+  // HITL fields
+  hitl_pending?: boolean;
+  hitl_ticker?: string;
+  hitl_raw_input?: string;
+  hitl_run_id?: string;
+}
+
+export interface HitlConfirmRequest {
+  session_id: string;
+  run_id: string;
+  confirmed: boolean;
+  corrected_ticker?: string;
 }
 
 export interface UploadResponse {

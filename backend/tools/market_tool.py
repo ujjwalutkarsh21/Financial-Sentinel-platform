@@ -5,34 +5,109 @@ from datetime import datetime, timedelta
 from agno.tools.toolkit import Toolkit
 
 
+# ── Company-name → ticker mapping ──────────────────────────────────
+# Extend this dict freely; it only needs to cover popular names.
+_COMPANY_TICKER_MAP: dict[str, str] = {
+    "apple": "AAPL", "microsoft": "MSFT", "google": "GOOGL",
+    "alphabet": "GOOGL", "amazon": "AMZN", "meta": "META",
+    "facebook": "META", "tesla": "TSLA", "nvidia": "NVDA",
+    "netflix": "NFLX", "amd": "AMD", "intel": "INTC",
+    "ibm": "IBM", "salesforce": "CRM", "oracle": "ORCL",
+    "adobe": "ADBE", "paypal": "PYPL", "uber": "UBER",
+    "spotify": "SPOT", "snap": "SNAP", "twitter": "X",
+    "coinbase": "COIN", "palantir": "PLTR", "snowflake": "SNOW",
+    "shopify": "SHOP", "zoom": "ZM", "airbnb": "ABNB",
+    "disney": "DIS", "boeing": "BA", "jpmorgan": "JPM",
+    "jp morgan": "JPM", "goldman sachs": "GS", "goldman": "GS",
+    "bank of america": "BAC", "wells fargo": "WFC",
+    "berkshire": "BRK-B", "berkshire hathaway": "BRK-B",
+    "coca-cola": "KO", "coca cola": "KO", "pepsi": "PEP",
+    "pepsico": "PEP", "walmart": "WMT", "costco": "COST",
+    "nike": "NKE", "visa": "V", "mastercard": "MA",
+    "johnson & johnson": "JNJ", "j&j": "JNJ", "pfizer": "PFE",
+    "moderna": "MRNA", "eli lilly": "LLY", "lilly": "LLY",
+    "exxon": "XOM", "exxonmobil": "XOM", "chevron": "CVX",
+    "broadcom": "AVGO", "qualcomm": "QCOM", "micron": "MU",
+    "arm": "ARM", "arm holdings": "ARM",
+    "reliance": "RELIANCE.NS", "tata": "TCS.NS", "infosys": "INFY",
+    "tcs": "TCS.NS", "wipro": "WIPRO.NS", "hcl": "HCLTECH.NS",
+}
+
+
+def _resolve_ticker(user_input: str) -> str:
+    """
+    Resolve raw user input into a normalised ticker symbol.
+
+    Resolution order:
+      1. If it matches a known company name → use the mapped ticker.
+      2. Otherwise treat the input itself as a ticker symbol.
+    Always returns UPPERCASE.
+    """
+    cleaned = user_input.strip()
+    if not cleaned:
+        return ""
+
+    # Try company-name lookup (case-insensitive)
+    lookup = cleaned.lower()
+    if lookup in _COMPANY_TICKER_MAP:
+        return _COMPANY_TICKER_MAP[lookup]
+
+    # Fall through: assume the user typed a ticker directly
+    return cleaned.upper()
+
+
 class MarketToolkit(Toolkit):
     """
     Custom toolkit wrapping all market-data fetching functions.
-    All four tools require human confirmation so the user can
-    verify the ticker before any real API calls are made.
+
+    HITL strategy:
+      • ONE centralized confirmation via `resolve_and_confirm_ticker`.
+      • The agent must call this FIRST; the HITL handler shows the
+        resolved ticker to the user for confirmation.
+      • Once confirmed, the ticker flows into the 4 data tools
+        WITHOUT any further confirmation prompts.
     """
 
     def __init__(self):
-        # Pass the bound methods via `tools=` so that Agno's internal validation
-        # of `requires_confirmation_tools` runs AFTER the tools are registered.
         super().__init__(
             name="market_toolkit",
             tools=[
+                self.resolve_and_confirm_ticker,
                 self.get_stock_data,
                 self.get_historical_performance,
                 self.get_risk_metrics,
                 self.get_technical_indicators,
             ],
+            # ── Only the resolver needs human confirmation ──
             requires_confirmation_tools=[
-                "get_stock_data",
-                "get_historical_performance",
-                "get_risk_metrics",
-                "get_technical_indicators",
+                "resolve_and_confirm_ticker",
             ],
         )
 
     # ------------------------------------------------------------------
-    # Tools
+    # Centralized ticker resolution + HITL confirmation
+    # ------------------------------------------------------------------
+
+    def resolve_and_confirm_ticker(self, user_input: str) -> str:
+        """
+        Resolve a company name or ticker symbol and confirm it with the user.
+
+        This function MUST be called before any market-data tool.
+        It resolves the input into a valid ticker (e.g. "Tesla" → "TSLA")
+        and pauses execution for human-in-the-loop confirmation.
+
+        After confirmation, return the resolved ticker as plain text so
+        the agent can pass it to get_stock_data, get_historical_performance,
+        get_risk_metrics, and get_technical_indicators.
+        """
+        resolved = _resolve_ticker(user_input)
+        if not resolved:
+            return "ERROR: Empty input. Please provide a company name or ticker symbol."
+
+        return f"CONFIRMED_TICKER:{resolved}"
+
+    # ------------------------------------------------------------------
+    # Data tools (NO confirmation required — ticker is pre-confirmed)
     # ------------------------------------------------------------------
 
     def get_stock_data(self, ticker: str) -> dict:

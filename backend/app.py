@@ -45,21 +45,25 @@ def _print_banner():
 
 def _handle_hitl(run_response, team, session_id: str, user_id: str):
     """
-    Loops until the team run is completed, handling any HITL requirements.
-    Implements ticker-level auto-confirmation: if the user confirms a ticker
-    for one tool, it will be automatically confirmed for subsequent tools
-    for that same ticker in the current run turn.
+    Loops until the team run completes, handling centralized ticker confirmation.
+
+    Only `resolve_and_confirm_ticker` triggers HITL. When it fires:
+      1. Resolve the user_input arg to a ticker using the same mapping.
+      2. Ask the user to confirm.
+      3. On YES → confirm and proceed; the ticker flows to all data tools.
+      4. On NO → ask for the correct ticker, reject with a note so the
+         agent restarts resolution with the corrected symbol.
     """
+    from tools.market_tool import _resolve_ticker
+
     current_response = run_response
-    confirmed_tickers = set()  # Cache for tickers approved in this specific turn
-    
+
     while hasattr(current_response, "is_paused") and current_response.is_paused:
         requirements = current_response.active_requirements if hasattr(current_response, "active_requirements") else []
-        
+
         if not requirements:
             break
 
-        # ── Process each pending requirement ──────────────────────────────
         for req in requirements:
             if not (hasattr(req, "needs_confirmation") and req.needs_confirmation):
                 continue
@@ -68,21 +72,11 @@ def _handle_hitl(run_response, team, session_id: str, user_id: str):
             tool_name = tool_execution.tool_name if tool_execution else "unknown_tool"
             tool_args = tool_execution.tool_args if tool_execution else {}
 
-            # Parse ticker from args
-            ticker = (
-                tool_args.get("ticker")
-                or tool_args.get("symbol")
-                or tool_args.get("stock")
-                or "UNKNOWN"
-            ).upper()
+            # ── Resolve ticker from user_input arg ─────────────────────────
+            raw_input = tool_args.get("user_input", "")
+            resolved_ticker = _resolve_ticker(raw_input)
 
-            # ── Auto-Confirmation Check ────────────────────────────────────
-            if ticker in confirmed_tickers:
-                req.confirm()
-                console.print(f"[dim]  • Auto-confirmed [yellow]{ticker}[/yellow] for [cyan]{tool_name}[/cyan][/dim]")
-                continue
-
-            # ── HITL Confirmation UI ────────────────────────────────────────
+            # ── Confirmation UI ────────────────────────────────────────────
             console.print()
             console.print(Rule("[bold yellow]🔍 Ticker Confirmation Required[/bold yellow]", style="yellow"))
             console.print()
@@ -90,13 +84,12 @@ def _handle_hitl(run_response, team, session_id: str, user_id: str):
             info_table = Table(show_header=False, box=None, padding=(0, 2))
             info_table.add_column(style="dim", width=20)
             info_table.add_column(style="bold white")
-            info_table.add_row("Tool", f"[cyan]{tool_name}[/cyan]")
-            info_table.add_row("Detected Ticker", f"[bright_yellow]{ticker}[/bright_yellow]")
-            info_table.add_row("Full Args", str(tool_args))
+            info_table.add_row("User Input", f"[cyan]{raw_input}[/cyan]")
+            info_table.add_row("Resolved Ticker", f"[bright_yellow]{resolved_ticker}[/bright_yellow]")
             console.print(
                 Panel(
                     info_table,
-                    title="[bold]Agent wants to fetch data for[/bold]",
+                    title="[bold]Confirm ticker before proceeding[/bold]",
                     border_style="yellow",
                     padding=(1, 2),
                 )
@@ -105,7 +98,7 @@ def _handle_hitl(run_response, team, session_id: str, user_id: str):
 
             choice = (
                 Prompt.ask(
-                    f"  [bold]Is [bright_yellow]{ticker}[/bright_yellow] the correct ticker?[/bold]  "
+                    f"  [bold]Is [bright_yellow]{resolved_ticker}[/bright_yellow] correct?[/bold]  "
                     "(y = yes, n = provide a different one)",
                     choices=["y", "n"],
                     default="y",
@@ -117,13 +110,11 @@ def _handle_hitl(run_response, team, session_id: str, user_id: str):
 
             if choice == "y":
                 req.confirm()
-                confirmed_tickers.add(ticker)  # Remember this ticker for subsequent tools
                 console.print(
                     f"\n  [bold bright_green]✔  Confirmed![/bold bright_green]  "
-                    f"Proceeding with [bright_yellow]{ticker}[/bright_yellow].\n"
+                    f"Proceeding with [bright_yellow]{resolved_ticker}[/bright_yellow].\n"
                 )
             else:
-                # Ask for the correct ticker
                 correct_ticker = (
                     Prompt.ask(
                         "  [bold]Enter the correct ticker symbol[/bold]",
@@ -135,17 +126,17 @@ def _handle_hitl(run_response, team, session_id: str, user_id: str):
                 if correct_ticker:
                     req.reject(
                         note=(
-                            f"The user says '{ticker}' is wrong. "
-                            f"Use '{correct_ticker}' instead for ALL subsequent tool calls."
+                            f"The user says '{resolved_ticker}' is wrong. "
+                            f"Use '{correct_ticker}' instead. Call resolve_and_confirm_ticker "
+                            f"with user_input='{correct_ticker}' to confirm the new ticker."
                         )
                     )
                     console.print(
                         f"\n  [bold bright_red]✖  Rejected.[/bold bright_red]  "
-                        f"Restarting with ticker [bright_yellow]{correct_ticker}[/bright_yellow].\n"
+                        f"Restarting with [bright_yellow]{correct_ticker}[/bright_yellow].\n"
                     )
                 else:
-                    # No replacement given — just reject
-                    req.reject(note=f"User says '{ticker}' is wrong but provided no replacement.")
+                    req.reject(note=f"User says '{resolved_ticker}' is wrong but provided no replacement.")
                     console.print("\n  [bold bright_red]✖  Rejected[/bold bright_red] without a replacement ticker.\n")
 
             console.print(Rule(style="dim"))
