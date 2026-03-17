@@ -14,18 +14,15 @@ import {
   FileText, 
   Table, 
   File as FileIcon, 
-  Settings, 
+  LogOut, 
   Plus, 
-  MessageSquare, 
   TrendingUp, 
-  AlertCircle, 
-  CheckCircle2,
-  ChevronRight,
-  Search,
+  AlertCircle,
   Cpu,
   Database,
   Globe
 } from 'lucide-react';
+import { resetSession as apiResetSession } from './services/chatService';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -155,6 +152,8 @@ export default function StockMindChat() {
   const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
   const isStreaming = chat.isLoading;
   const [isDragging, setIsDragging] = useState(false);
+  const [exitModalOpen, setExitModalOpen] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [agentStatus, setAgentStatus] = useState({
     data: false,
     research: false,
@@ -167,6 +166,24 @@ export default function StockMindChat() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // === EFFECTS ===
+
+  // Restore persisted messages for the active session on mount / session switch
+  useEffect(() => {
+    const snapshot = session.getSnapshot(session.activeSessionId);
+    if (snapshot.messages.length > 0 && messages.length === 0) {
+      setMessages(snapshot.messages);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.activeSessionId]);
+
+  // Save snapshot whenever messages change so localStorage stays in sync
+  useEffect(() => {
+    if (messages.length > 0) {
+      session.saveSnapshot(messages, uploadedFiles);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -203,9 +220,19 @@ export default function StockMindChat() {
   };
 
   const handleNewChat = () => {
-    const result = session.createSession(messages, uploadedFiles);
+    session.createSession(messages, uploadedFiles);
     chat.clearMessages();
     setUploadedFiles([]);
+  };
+
+  const handleExit = async () => {
+    setIsExiting(true);
+    try {
+      await apiResetSession();
+    } catch { /* best-effort */ }
+    session.clearAllPersistence();
+    // Hard reload gives a completely fresh state
+    window.location.reload();
   };
 
   const handleSwitchSession = (targetId: string) => {
@@ -437,10 +464,69 @@ export default function StockMindChat() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="text-white/40 hover:text-white transition-colors">
-              <Settings size={18} />
+            <button
+              onClick={() => setExitModalOpen(true)}
+              title="Exit — clears all chats, uploads and memory"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-400 border border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60 transition-all active:scale-95"
+            >
+              <LogOut size={14} />
+              Exit
             </button>
           </div>
+
+          {/* EXIT CONFIRMATION MODAL */}
+          <AnimatePresence>
+            {exitModalOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                onClick={() => !isExiting && setExitModalOpen(false)}
+              >
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                  transition={{ type: 'spring', damping: 20 }}
+                  onClick={e => e.stopPropagation()}
+                  className="bg-[#0E1014] border border-red-400/30 p-8 max-w-sm w-full mx-4"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 bg-red-400/10 border border-red-400/30 flex items-center justify-center">
+                      <LogOut size={20} className="text-red-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-extrabold tracking-tight">Exit Session?</h2>
+                      <p className="text-[11px] text-white/30 font-mono">This cannot be undone</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-white/60 mb-6 leading-relaxed">
+                    This will permanently delete <span className="text-white font-bold">all chats</span>,
+                    <span className="text-white font-bold"> uploaded files</span>, and
+                    <span className="text-white font-bold"> AI memory</span> for every session.
+                    The page will refresh to a clean state.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setExitModalOpen(false)}
+                      disabled={isExiting}
+                      className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider border border-white/10 hover:bg-white/5 transition-all disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleExit}
+                      disabled={isExiting}
+                      className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider bg-red-500 hover:bg-red-600 text-white transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isExiting ? 'Clearing…' : 'Exit & Clear All'}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </header>
 
         {/* CHAT AREA */}

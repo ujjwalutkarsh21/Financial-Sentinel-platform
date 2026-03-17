@@ -54,3 +54,26 @@ async def history(session_id: str = Query(..., description="Session ID to retrie
 async def session_files(session_id: str):
     """Return all uploaded files for a session."""
     return upload_service.get_session_files(session_id)
+
+
+@router.delete("/reset")
+async def reset_all():
+    """
+    Wipe ALL server-side state: chat history, uploaded files (disk + registry),
+    indexed-files tracking, and Agno's SQLite memory.
+    Called by the frontend "Exit" button.
+    """
+    # 1. Clear chat history
+    history_service.clear()
+
+    # 2. Clear uploads (registry + disk files)
+    upload_service.clear_all_files()
+
+    # 3. Clear the Agno SQLite memory DB
+    try:
+        from agents.team_orchestrator import db as agno_db
+        agno_db.clear()
+    except Exception:
+        pass  # best-effort
+
+    return {"status": "ok"}

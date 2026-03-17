@@ -14,3 +14,8 @@ export async function uploadFile(file: File, sessionId: string): Promise<UploadR
 export async function getHistory(sessionId: string): Promise<HistoryMessage[]> {
   return get<HistoryMessage[]>(`/api/history?session_id=${encodeURIComponent(sessionId)}`);
 }
+
+export async function resetSession(): Promise<void> {
+  await fetch('/api/reset', { method: 'DELETE' });
+}
+

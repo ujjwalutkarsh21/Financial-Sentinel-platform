@@ -79,3 +79,23 @@ def get_file_name(file_id: str, session_id: str) -> str | None:
     session_files = _file_registry.get(session_id, {})
     entry = session_files.get(file_id)
     return entry["name"] if entry else None
+
+
+def clear_all_files() -> None:
+    """
+    Delete every uploaded file from disk and clear all in-memory state.
+    Called by the reset endpoint when the user clicks Exit.
+    """
+    # Remove files from disk
+    for session_files in _file_registry.values():
+        for info in session_files.values():
+            try:
+                path = info.get("path", "")
+                if path and os.path.isfile(path):
+                    os.remove(path)
+            except OSError:
+                pass
+
+    _file_registry.clear()
+    _indexed_files.clear()
+
