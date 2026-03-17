@@ -1,11 +1,11 @@
-// === useUpload hook — manages file upload state ===
+// === useUpload hook — manages file upload state, scoped by session ===
 
 import { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as chatService from '../services/chatService';
 import type { FileObject } from '../types/chat';
 
-export function useUpload() {
+export function useUpload(sessionId: string) {
   const [stagedFiles, setStagedFiles] = useState<FileObject[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -25,7 +25,7 @@ export function useUpload() {
 
     setIsUploading(true);
     try {
-      const result = await chatService.uploadFile(file);
+      const result = await chatService.uploadFile(file, sessionId);
       // Update placeholder with the real remote ID
       setStagedFiles(prev =>
         prev.map(f =>
@@ -39,7 +39,7 @@ export function useUpload() {
     } finally {
       setIsUploading(false);
     }
-  }, []);
+  }, [sessionId]);
 
   /** Remove a staged file */
   const removeFile = useCallback((id: string) => {

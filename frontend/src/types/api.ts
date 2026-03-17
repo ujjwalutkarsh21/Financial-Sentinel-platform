@@ -2,6 +2,7 @@
 
 export interface ChatRequest {
   message: string;
+  session_id: string;
   attachments?: string[];
 }
 

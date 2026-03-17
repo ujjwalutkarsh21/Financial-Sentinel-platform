@@ -8,9 +8,6 @@ from agents.team_orchestrator import financial_sentinel
 from schemas.chat_schema import ChatResponse
 from services import upload_service
 
-# Persistent session — reused across API calls so the Agno orchestrator
-# retains chat history / memory between queries.
-_SESSION_ID = str(uuid.uuid4())
 _USER_ID = "api_user"
 
 
@@ -52,7 +49,7 @@ def _run_orchestrator(message: str, session_id: str, user_id: str) -> str:
     return run_response.content if hasattr(run_response, "content") else str(run_response)
 
 
-async def process_query(message: str, attachments: list[str] | None = None) -> ChatResponse:
+async def process_query(message: str, session_id: str, attachments: list[str] | None = None) -> ChatResponse:
     """
     Process a user query through the multi-agent orchestrator.
 
@@ -64,7 +61,7 @@ async def process_query(message: str, attachments: list[str] | None = None) -> C
     if attachments:
         file_info = []
         for file_id in attachments:
-            path = upload_service.get_file_path(file_id)
+            path = upload_service.get_file_path(file_id, session_id)
             if path:
                 file_info.append(f"[Attached file: {path}]")
         if file_info:
@@ -75,7 +72,7 @@ async def process_query(message: str, attachments: list[str] | None = None) -> C
         None,
         _run_orchestrator,
         enriched_message,
-        _SESSION_ID,
+        session_id,
         _USER_ID,
     )
 

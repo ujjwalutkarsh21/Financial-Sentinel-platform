@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useUpload } from './hooks/useUpload';
+import { useSession } from './hooks/useSession';
 import { 
   Send, 
   Paperclip, 
@@ -36,14 +37,6 @@ import { twMerge } from 'tailwind-merge';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
-// === API INTEGRATION POINTS ===
-/**
- * sendMessage(text, files) → POST /api/chat
- * uploadFile(file) → POST /api/upload
- * streamResponse(messageId) → SSE /api/stream/:id
- * confirmTicker(ticker) → POST /api/hitl/confirm
- */
 
 // === TYPES ===
 interface FileObject {
@@ -79,11 +72,6 @@ interface Session {
   type: 'research' | 'data' | 'upload';
 }
 
-// === DEFAULT SESSIONS (sidebar) ===
-const DEFAULT_SESSIONS: Session[] = [
-  { id: '1', name: 'New Analysis', timestamp: new Date(), type: 'data' },
-];
-
 // === COMPONENTS ===
 
 const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => void }) => {
@@ -95,7 +83,7 @@ const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => voi
       const timeout = setTimeout(() => {
         setDisplayedText(prev => prev + text[index]);
         setIndex(prev => prev + 1);
-      }, 5); // Sped up the typewriter effect a bit
+      }, 5);
       return () => clearTimeout(timeout);
     } else if (onComplete) {
       onComplete();
@@ -152,9 +140,12 @@ const DataTable = ({ headers, rows }: { headers: string[], rows: string[][] }) =
 );
 
 export default function StockMindChat() {
-  // === HOOKS ===
-  const chat = useChat();
-  const uploadHook = useUpload();
+  // === SESSION HOOK ===
+  const session = useSession();
+
+  // === HOOKS (scoped by session) ===
+  const chat = useChat(session.activeSessionId);
+  const uploadHook = useUpload(session.activeSessionId);
 
   // === STATE ===
   const messages = chat.messages;
@@ -163,14 +154,14 @@ export default function StockMindChat() {
   const attachedFiles = uploadHook.stagedFiles;
   const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
   const isStreaming = chat.isLoading;
-  const [sessions, setSessions] = useState<Session[]>(DEFAULT_SESSIONS);
-  const [activeSessionId, setActiveSessionId] = useState('1');
   const [isDragging, setIsDragging] = useState(false);
   const [agentStatus, setAgentStatus] = useState({
     data: false,
     research: false,
     rag: false
   });
+  // Track whether the first message of a session has been sent (for auto-rename)
+  const firstMessageSentRef = useRef<Set<string>>(new Set());
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -195,6 +186,13 @@ export default function StockMindChat() {
       uploadHook.clearStaged();
     }
 
+    // Auto-rename session after first user message
+    if (!firstMessageSentRef.current.has(session.activeSessionId)) {
+      firstMessageSentRef.current.add(session.activeSessionId);
+      const truncated = text.length > 28 ? text.substring(0, 28) + '…' : text;
+      session.renameSession(session.activeSessionId, truncated);
+    }
+
     // Show agent activity
     setAgentStatus({ data: true, research: true, rag: fileIds.length > 0 });
 
@@ -202,6 +200,20 @@ export default function StockMindChat() {
     await chat.sendMessage(text, fileIds.length > 0 ? fileIds : undefined);
 
     setAgentStatus({ data: false, research: false, rag: false });
+  };
+
+  const handleNewChat = () => {
+    const result = session.createSession(messages, uploadedFiles);
+    chat.clearMessages();
+    setUploadedFiles([]);
+  };
+
+  const handleSwitchSession = (targetId: string) => {
+    const result = session.switchSession(targetId, messages, uploadedFiles);
+    if (result) {
+      setMessages(result.messages);
+      setUploadedFiles(result.files);
+    }
   };
 
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -320,26 +332,26 @@ export default function StockMindChat() {
           <div>
             <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">Active Sessions</h3>
             <div className="space-y-1">
-              {sessions.map((session, idx) => (
+              {session.sessions.map((s, idx) => (
                 <motion.button
-                  key={session.id}
+                  key={s.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.1 }}
-                  onClick={() => setActiveSessionId(session.id)}
+                  onClick={() => handleSwitchSession(s.id)}
                   className={cn(
                     "w-full group relative flex flex-col items-start p-3 transition-all hover:bg-white/5 border-l-2",
-                    activeSessionId === session.id ? "border-[#00FF85] bg-white/5" : "border-transparent"
+                    session.activeSessionId === s.id ? "border-[#00FF85] bg-white/5" : "border-transparent"
                   )}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <div className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      session.type === 'research' ? "bg-blue-400" : session.type === 'data' ? "bg-[#00FF85]" : "bg-amber-400"
+                      s.type === 'research' ? "bg-blue-400" : s.type === 'data' ? "bg-[#00FF85]" : "bg-amber-400"
                     )} />
-                    <span className="text-sm font-medium truncate w-40 text-left">{session.name}</span>
+                    <span className="text-sm font-medium truncate w-40 text-left">{s.name}</span>
                   </div>
-                  <span className="text-[10px] font-mono text-white/20">{session.timestamp.toLocaleDateString()}</span>
+                  <span className="text-[10px] font-mono text-white/20">{s.timestamp.toLocaleDateString()}</span>
                 </motion.button>
               ))}
             </div>
@@ -379,7 +391,10 @@ export default function StockMindChat() {
         </div>
 
         <div className="p-4 border-t border-white/5">
-          <button className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center gap-2 transition-all active:scale-95">
+          <button
+            onClick={handleNewChat}
+            className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center gap-2 transition-all active:scale-95"
+          >
             <Plus size={18} />
             <span className="text-sm font-bold uppercase tracking-wider">New Chat</span>
           </button>
@@ -394,7 +409,7 @@ export default function StockMindChat() {
         <header className="h-12 border-b border-white/5 flex items-center justify-between px-6 bg-[#0A0C10]/80 backdrop-blur-md z-30">
           <div className="flex items-center gap-4">
             <h2 className="text-sm font-bold cursor-pointer hover:text-[#00FF85] transition-colors">
-              {sessions.find(s => s.id === activeSessionId)?.name || 'Untitled Session'}
+              {session.sessions.find(s => s.id === session.activeSessionId)?.name || 'Untitled Session'}
             </h2>
             <div className="h-4 w-[1px] bg-white/10" />
             <div className="flex items-center gap-2">

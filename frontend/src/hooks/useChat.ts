@@ -1,11 +1,11 @@
-// === useChat hook — manages chat state and API calls ===
+// === useChat hook — manages chat state and API calls, scoped by session ===
 
 import { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as chatService from '../services/chatService';
 import type { Message } from '../types/chat';
 
-export function useChat() {
+export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +28,7 @@ export function useChat() {
     try {
       const response = await chatService.sendMessage({
         message: text,
+        session_id: sessionId,
         attachments: attachmentIds,
       });
 
@@ -56,12 +57,12 @@ export function useChat() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [sessionId]);
 
-  /** Load chat history from the backend */
+  /** Load chat history from the backend for the current session */
   const loadHistory = useCallback(async () => {
     try {
-      const history = await chatService.getHistory();
+      const history = await chatService.getHistory(sessionId);
       const mapped: Message[] = history.map(h => ({
         id: h.id,
         role: h.role,
@@ -73,13 +74,18 @@ export function useChat() {
     } catch {
       // Silently fail — user starts with empty chat
     }
-  }, []);
+  }, [sessionId]);
 
   /** Mark a streaming message as complete */
   const markStreamingComplete = useCallback((messageId: string) => {
     setMessages(prev =>
       prev.map(m => (m.id === messageId ? { ...m, isStreaming: false } : m))
     );
+  }, []);
+
+  /** Clear all messages (used when switching sessions) */
+  const clearMessages = useCallback(() => {
+    setMessages([]);
   }, []);
 
   return {
@@ -90,5 +96,6 @@ export function useChat() {
     sendMessage,
     loadHistory,
     markStreamingComplete,
+    clearMessages,
   };
 }
