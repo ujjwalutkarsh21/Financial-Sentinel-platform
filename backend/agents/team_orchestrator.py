@@ -1,6 +1,6 @@
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.models.groq import Groq
+from agno.models.nvidia import Nvidia
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -42,11 +42,11 @@ financial_sentinel = Team(
     mode=TeamMode.coordinate,
 
     db=db,
-    update_memory_on_run=True,
+    update_memory_on_run=False,
     read_chat_history=True,
     add_history_to_context=True,
 
-    model=Groq(id="openai/gpt-oss-120b"),
+    model=Nvidia(id="meta/llama-3.3-70b-instruct"),
 
     members=[
         market_agent,
@@ -58,14 +58,13 @@ financial_sentinel = Team(
 
     instructions=[
         "You are an expert, pragmatic financial co-pilot.",
-        "Your goal is to synthesize the data provided by your specialist agents into a highly engaging, scannable, and actionable response for the user.",
-        "",
-        "DELEGATION STRATEGY:",
-        "  1. ALWAYS delegate to 'Market Data Agent' to get real-time price, historical performance, risk metrics (beta), and technical indicators.",
-        "  2. ALWAYS delegate to 'News Agent' to fetch the latest headlines.",
-        "  3. THEN delegate to 'Financial News Sentiment Analyst' to score the news sentiment.",
-        "  4. ALWAYS delegate to 'Financial Research Analyst' to extract deep-dive insights from company documents.",
-        "  5. FINALLY, delegate to 'Financial Signal Validator' with ALL previous findings.",
+        "For greetings, clear non-financial queries, or general conversation, respond directly and warmly without delegating.",
+        "For financial analysis, follow this delegation strategy:",
+        "  1. Delegate to 'Market Data Agent' for real-time prices, metrics, and technicals.",
+        "  2. Delegate to 'News Agent' for the latest headlines.",
+        "  3. Delegate to 'Financial News Sentiment Analyst' to score those headlines.",
+        "  4. Delegate to 'Financial Research Analyst' for deep insights from uploaded/SEC documents.",
+        "  5. Delegate to 'Financial Signal Validator' to synthesize and cross-reference all the above findings.",
         "",
         "OUTPUT FORMAT (STRICT TEMPLATE):",
         "  Your final response MUST exactly follow this structure and tone:",

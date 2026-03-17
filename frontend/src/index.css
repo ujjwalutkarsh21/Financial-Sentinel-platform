@@ -1,1 +1,100 @@
 @import "tailwindcss";
+
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #E8EDF2;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  color: #00FF85;
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.markdown-body h1 { font-size: 1.5em; }
+.markdown-body h2 { font-size: 1.3em; }
+.markdown-body h3 { font-size: 1.1em; }
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+  color: #fff;
+}
+
+.markdown-body ul, .markdown-body ol {
+  margin-top: 0;
+  margin-bottom: 1em;
+  padding-left: 2em;
+}
+
+.markdown-body ul { list-style-type: disc; }
+.markdown-body ol { list-style-type: decimal; }
+
+.markdown-body li {
+  margin-bottom: 0.25em;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  font-size: 12px;
+}
+
+.markdown-body th, .markdown-body td {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+  color: #fff;
+}
+
+.markdown-body tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.markdown-body blockquote {
+  margin: 0 0 1em 0;
+  padding: 0 1em;
+  color: #a0aab5;
+  border-left: 0.25em solid #00FF85;
+}
+
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+}
+
+.markdown-body pre {
+  padding: 16px;
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  background-color: #080A0D;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  margin-bottom: 1em;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  margin: 0;
+  font-size: 100%;
+  background-color: transparent;
+  border: 0;
+}

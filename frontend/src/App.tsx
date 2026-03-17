@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useChat } from './hooks/useChat';
+import { useUpload } from './hooks/useUpload';
 import { 
   Send, 
   Paperclip, 
@@ -25,6 +27,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { v4 as uuidv4 } from 'uuid';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -50,6 +53,8 @@ interface FileObject {
   type: string;
   uploadedAt: Date;
   file?: File;
+  /** ID returned from backend after upload */
+  remoteId?: string;
 }
 
 interface Message {
@@ -74,76 +79,9 @@ interface Session {
   type: 'research' | 'data' | 'upload';
 }
 
-// === MOCK DATA ===
-const MOCK_SESSIONS: Session[] = [
-  { id: '1', name: 'Tesla Growth Analysis', timestamp: new Date(Date.now() - 3600000), type: 'data' },
-  { id: '2', name: 'Apple Q4 Risk Review', timestamp: new Date(Date.now() - 86400000), type: 'research' },
-  { id: '3', name: 'Portfolio Rebalancing', timestamp: new Date(Date.now() - 172800000), type: 'upload' },
-];
-
-const MOCK_UPLOADED_FILES: FileObject[] = [
-  { id: 'f1', name: 'AAPL_10K_2023.pdf', size: 2400000, type: 'application/pdf', uploadedAt: new Date() },
-  { id: 'f2', name: 'Portfolio_Holdings.csv', size: 48000, type: 'text/csv', uploadedAt: new Date() },
-];
-
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'm1',
-    role: 'user',
-    content: "What is Tesla's current P/E ratio and how does it compare to the EV sector?",
-    timestamp: new Date(Date.now() - 100000),
-  },
-  {
-    id: 'm2',
-    role: 'assistant',
-    content: "Tesla's current valuation remains significantly higher than the broader automotive and EV sector averages, reflecting its market-leader status and software-driven margins.",
-    timestamp: new Date(Date.now() - 95000),
-    data: {
-      metrics: [
-        { label: 'TSLA P/E', value: '72.4', trend: 'up' },
-        { label: 'Sector Avg', value: '48.1', trend: 'neutral' },
-        { label: 'Premium', value: '+50.6%', trend: 'up', highlight: true },
-      ]
-    },
-    sources: ['Live Market Data'],
-  },
-  {
-    id: 'm3',
-    role: 'user',
-    content: "Summarize the key risks from AAPL's latest 10-K",
-    timestamp: new Date(Date.now() - 80000),
-    files: [MOCK_UPLOADED_FILES[0]],
-  },
-  {
-    id: 'm4',
-    role: 'assistant',
-    content: "Based on Apple's FY2023 10-K filing, the company identifies several critical risk factors that could materially impact financial performance:\n\n1. **Supply Chain Concentration**: Heavy reliance on manufacturing partners in specific geographic regions, particularly China.\n2. **Regulatory Headwinds**: Increasing scrutiny over App Store policies and digital services in the EU and US.\n3. **Macroeconomic Volatility**: Currency fluctuations and consumer spending shifts in key emerging markets.",
-    timestamp: new Date(Date.now() - 75000),
-    sources: ['AAPL_10K_2023.pdf'],
-  },
-  {
-    id: 'm5',
-    role: 'user',
-    content: "What's the revenue growth trend for NVDA over last 3 years?",
-    timestamp: new Date(Date.now() - 50000),
-  },
-  {
-    id: 'm6',
-    role: 'assistant',
-    content: "NVIDIA has shown exponential revenue growth, primarily driven by the massive surge in Data Center demand for AI training and inference hardware.",
-    timestamp: new Date(Date.now() - 45000),
-    data: {
-      table: {
-        headers: ['Year', 'Revenue ($B)', 'Growth (%)'],
-        rows: [
-          ['2024 (Est)', '60.9', '+126%'],
-          ['2023', '26.9', '+0.2%'],
-          ['2022', '26.9', '+61%'],
-        ]
-      }
-    },
-    sources: ['Live Market Data'],
-  }
+// === DEFAULT SESSIONS (sidebar) ===
+const DEFAULT_SESSIONS: Session[] = [
+  { id: '1', name: 'New Analysis', timestamp: new Date(), type: 'data' },
 ];
 
 // === COMPONENTS ===
@@ -157,7 +95,7 @@ const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => voi
       const timeout = setTimeout(() => {
         setDisplayedText(prev => prev + text[index]);
         setIndex(prev => prev + 1);
-      }, 15);
+      }, 5); // Sped up the typewriter effect a bit
       return () => clearTimeout(timeout);
     } else if (onComplete) {
       onComplete();
@@ -165,8 +103,8 @@ const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => voi
   }, [index, text, onComplete]);
 
   return (
-    <div className="relative">
-      <ReactMarkdown>{displayedText}</ReactMarkdown>
+    <div className="relative markdown-body">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayedText}</ReactMarkdown>
       {index < text.length && (
         <span className="inline-block w-1.5 h-4 bg-[#00FF85] ml-1 animate-pulse align-middle" />
       )}
@@ -214,17 +152,22 @@ const DataTable = ({ headers, rows }: { headers: string[], rows: string[][] }) =
 );
 
 export default function StockMindChat() {
+  // === HOOKS ===
+  const chat = useChat();
+  const uploadHook = useUpload();
+
   // === STATE ===
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  const messages = chat.messages;
+  const setMessages = chat.setMessages;
   const [inputText, setInputText] = useState('');
-  const [attachedFiles, setAttachedFiles] = useState<FileObject[]>([]);
-  const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>(MOCK_UPLOADED_FILES);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>(MOCK_SESSIONS);
+  const attachedFiles = uploadHook.stagedFiles;
+  const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
+  const isStreaming = chat.isLoading;
+  const [sessions, setSessions] = useState<Session[]>(DEFAULT_SESSIONS);
   const [activeSessionId, setActiveSessionId] = useState('1');
   const [isDragging, setIsDragging] = useState(false);
   const [agentStatus, setAgentStatus] = useState({
-    data: true,
+    data: false,
     research: false,
     rag: false
   });
@@ -238,72 +181,38 @@ export default function StockMindChat() {
   }, [messages]);
 
   // === HANDLERS ===
-  const handleSendMessage = (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() && attachedFiles.length === 0) return;
 
-    const newMessage: Message = {
-      id: uuidv4(),
-      role: 'user',
-      content: inputText,
-      timestamp: new Date(),
-      files: attachedFiles,
-    };
-
-    setMessages(prev => [...prev, newMessage]);
+    const text = inputText;
+    const fileIds = uploadHook.getStagedIds();
     setInputText('');
-    
-    // Move attached to uploaded
+
+    // Move attached to uploaded sidebar
     if (attachedFiles.length > 0) {
       setUploadedFiles(prev => [...prev, ...attachedFiles]);
-      setAttachedFiles([]);
+      uploadHook.clearStaged();
     }
 
-    // Simulate AI Response
-    setIsStreaming(true);
-    setAgentStatus({ data: true, research: true, rag: attachedFiles.length > 0 });
+    // Show agent activity
+    setAgentStatus({ data: true, research: true, rag: fileIds.length > 0 });
 
-    setTimeout(() => {
-      const responseId = uuidv4();
-      const aiResponse: Message = {
-        id: responseId,
-        role: 'assistant',
-        content: "I'm analyzing the requested data. Based on current market indicators and your provided documents, here is the synthesized outlook...",
-        timestamp: new Date(),
-        isStreaming: true,
-        sources: ['Live Market Data', ...(attachedFiles.length > 0 ? attachedFiles.map(f => f.name) : [])],
-      };
-      
-      // Check for HITL trigger (e.g., if user mentions a new stock)
-      if (inputText.toLowerCase().includes('meta') || inputText.toLowerCase().includes('google')) {
-        aiResponse.hitl = {
-          type: 'ticker_confirmation',
-          ticker: inputText.toLowerCase().includes('meta') ? 'META' : 'GOOGL'
-        };
-      }
+    // This calls the API with optimistic user message insertion
+    await chat.sendMessage(text, fileIds.length > 0 ? fileIds : undefined);
 
-      setMessages(prev => [...prev, aiResponse]);
-      setIsStreaming(false);
-      setAgentStatus({ data: false, research: false, rag: false });
-    }, 1500);
+    setAgentStatus({ data: false, research: false, rag: false });
   };
 
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const newFiles: FileObject[] = files.map(f => ({
-      id: uuidv4(),
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      uploadedAt: new Date(),
-      file: f
-    }));
-    setAttachedFiles(prev => [...prev, ...newFiles]);
+    // Upload each file immediately via the hook
+    files.forEach(f => uploadHook.upload(f));
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const removeAttachedFile = (id: string) => {
-    setAttachedFiles(prev => prev.filter(f => f.id !== id));
+    uploadHook.removeFile(id);
   };
 
   const removeUploadedFile = (id: string) => {
@@ -323,15 +232,7 @@ export default function StockMindChat() {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    const newFiles: FileObject[] = files.map(f => ({
-      id: uuidv4(),
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      uploadedAt: new Date(),
-      file: f
-    }));
-    setAttachedFiles(prev => [...prev, ...newFiles]);
+    files.forEach(f => uploadHook.upload(f));
   };
 
   const handleTickerConfirm = (id: string, confirmed: boolean, newTicker?: string) => {
@@ -570,13 +471,13 @@ export default function StockMindChat() {
                   ? "bg-[#121418] border-l-2 border-[#00FF85]" 
                   : "bg-[#0E1014] border border-white/5"
               )}>
-                <div className="text-sm leading-relaxed">
+                <div className="text-sm leading-relaxed markdown-body">
                   {msg.isStreaming ? (
                     <Typewriter text={msg.content} onComplete={() => {
                       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m));
                     }} />
                   ) : (
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                   )}
                 </div>
 
