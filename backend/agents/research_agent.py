@@ -20,6 +20,7 @@ _RESEARCH_INSTRUCTIONS = [
     "Do NOT use prior knowledge or invent facts.",
     "If information is not in documents, say 'Not found in the provided documents.'",
     "Cite evidence with direct quotes for every insight.",
+    "IF the user asks to 'summarize' or 'explain' a document, provide a comprehensive executive summary highlighting key findings, financial data, and trends mentioned in the text.",
 ]
 
 
