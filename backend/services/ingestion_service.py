@@ -19,12 +19,13 @@ def _content_hash(text: str) -> str:
 
 def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
     """
-    Monkey-patch knowledge.vector_db.upsert() to work with both Agno versions.
+    Monkey-patch knowledge.vector_db.upsert() to work with both Agno API versions.
 
-    Agno >= 1.4.x changed LanceDb.upsert() to require a `content_hash` kwarg.
-    This wrapper:
-      - Computes and injects content_hash automatically when missing.
-      - Tries the new API first, falls back to old API on TypeError.
+    The internal Agno caller passes arguments POSITIONALLY:
+        upsert(documents, content_hash)   ← new Agno
+        upsert(documents)                 ← old Agno
+
+    So our wrapper must accept (*args, **kwargs) to capture both forms.
     Calling this multiple times on the same instance is safe (idempotent guard).
     """
     vector_db = knowledge.vector_db
@@ -35,23 +36,39 @@ def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
 
     original_upsert = vector_db.upsert
 
-    def _safe_upsert(documents, content_hash=None, **kwargs):
+    def _safe_upsert(*args, **kwargs):
+        # Normalise: extract documents however they arrived
+        if args:
+            documents = args[0]
+            rest_args = args[1:]
+        else:
+            documents = kwargs.pop("documents", [])
+            rest_args = ()
+
         # Stamp each document with a content_hash attribute if absent
         for doc in documents:
             if not getattr(doc, "content_hash", None):
                 doc.content_hash = _content_hash(getattr(doc, "content", "") or "")
 
-        if content_hash is None:
-            content_hash = _content_hash(
+        try:
+            # Try calling with original positional/keyword args unchanged
+            return original_upsert(documents, *rest_args, **kwargs)
+        except TypeError as first_err:
+            # If that failed, try the opposite arity:
+            # new API needs content_hash, old API doesn't want it
+            combined_hash = _content_hash(
                 "".join(getattr(d, "content", "") or "" for d in documents)
             )
-
-        try:
-            # New Agno API: upsert(documents, content_hash=...)
-            return original_upsert(documents=documents, content_hash=content_hash, **kwargs)
-        except TypeError:
-            # Old Agno API: upsert(documents)
-            return original_upsert(documents=documents, **kwargs)
+            try:
+                # New API: pass content_hash as second positional arg
+                return original_upsert(documents, combined_hash)
+            except TypeError:
+                try:
+                    # Old API: documents only
+                    return original_upsert(documents)
+                except TypeError:
+                    # Give up and re-raise the original error
+                    raise first_err
 
     vector_db.upsert = _safe_upsert
     vector_db._upsert_patched = True
@@ -67,7 +84,7 @@ def ingest_files_for_session(
 
     1. Look up the local path via upload_service.
     2. Patch the LanceDB upsert for content_hash API compatibility.
-    3. Call knowledge.insert(path, reader) — the same pattern used in load_kb.py.
+    3. Call knowledge.insert(path, reader) — same pattern as load_kb.py.
     4. Mark the file as indexed so it won't be re-embedded on subsequent messages.
 
     Returns a list of human-readable warning strings for files that
@@ -95,8 +112,6 @@ def ingest_files_for_session(
         filename = upload_service.get_file_name(file_id, session_id) or file_id
 
         # --- read & embed using knowledge.insert() ---
-        # This matches the working pattern in load_kb.py:
-        #   knowledge.insert(path=path, reader=PDFReader())
         try:
             logger.info("Ingesting '%s' (id=%s) from %s", filename, file_id, path)
             knowledge.insert(path=path, reader=_pdf_reader)
