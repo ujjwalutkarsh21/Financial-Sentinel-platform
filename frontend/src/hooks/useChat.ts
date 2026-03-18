@@ -1,27 +1,73 @@
-// === useChat hook — manages chat state and SSE streaming, scoped by session ===
+// === useChat hook — manages chat state, SSE streaming, and ThoughtTrace ===
 
 import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as chatService from '../services/chatService';
 import type { Message } from '../types/chat';
+import type { ThoughtStep } from '../components/ThoughtTrace';
 
 export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);   // true while any request is in-flight
+  const [isStreaming, setIsStreaming] = useState(false); // true while SSE tokens are flowing
   const [error, setError] = useState<string | null>(null);
 
-  // HITL state
+  // ── Thought Trace state ────────────────────────────────────────────
+  const [thoughtSteps, setThoughtSteps] = useState<ThoughtStep[]>([]);
+  const [totalElapsed, setTotalElapsed] = useState<number | undefined>(undefined);
+  const [isTraceCollapsed, setIsTraceCollapsed] = useState(false);
+  const streamStartRef = useRef<number>(0);
+
+  // ── HITL state ─────────────────────────────────────────────────────
   const [hitlPending, setHitlPending] = useState(false);
   const [hitlTicker, setHitlTicker] = useState('');
   const [hitlRawInput, setHitlRawInput] = useState('');
   const [hitlRunId, setHitlRunId] = useState('');
 
-  // Ref to abort the in-flight SSE stream (e.g. on component unmount or new message)
+  // Ref to abort the in-flight SSE stream
   const abortStreamRef = useRef<(() => void) | null>(null);
 
-  // ── helpers ───────────────────────────────────────────────────────
+  // ── helpers ──────────────────────────────────────────────────────────
 
-  /** Handle a non-streaming ChatResponse (used by /confirm fallback) */
+  /** Map an SSE thought event text to a ThoughtStep icon */
+  function iconForThought(text: string, eventType?: string): ThoughtStep['icon'] {
+    if (!eventType && !text) return 'brain';
+    const t = (eventType ?? text).toLowerCase();
+    if (t.includes('search') || t.includes('news') || t.includes('duckduck')) return 'search';
+    if (t.includes('data') || t.includes('market') || t.includes('database') || t.includes('db')) return 'database';
+    if (t.includes('done') || t.includes('finish') || t.includes('complete') || t.includes('valid')) return 'check';
+    if (t.includes('error') || t.includes('fail')) return 'error';
+    return 'brain';
+  }
+
+  /** Add a new active ThoughtStep and mark the previous one as done */
+  function pushThoughtStep(text: string, eventType?: string) {
+    setThoughtSteps(prev => {
+      const updated = prev.map(s =>
+        s.status === 'active' ? { ...s, status: 'done' as const } : s,
+      );
+      return [
+        ...updated,
+        {
+          id: uuidv4(),
+          type: 'thought' as const,
+          message: text,
+          icon: iconForThought(text, eventType),
+          status: 'active' as const,
+        },
+      ];
+    });
+  }
+
+  /** Mark all remaining active steps as done */
+  function finaliseThoughtSteps() {
+    setThoughtSteps(prev =>
+      prev.map(s => s.status === 'active' ? { ...s, status: 'done' as const } : s),
+    );
+  }
+
+  // ── handleResponse — used by non-streaming /confirm path ─────────────
+
   const handleResponse = useCallback((response: any) => {
     if (response.hitl_pending) {
       setHitlPending(true);
@@ -53,9 +99,10 @@ export function useChat(sessionId: string) {
     }
   }, []);
 
-  // ── sendMessage — uses SSE stream ─────────────────────────────────
+  // ── sendStreamingMessage — primary send path via SSE ─────────────────
+  // App.tsx calls this as `chat.sendStreamingMessage(...)`
 
-  const sendMessage = useCallback(
+  const sendStreamingMessage = useCallback(
     async (text: string, attachmentIds?: string[]) => {
       if (!text.trim() && (!attachmentIds || attachmentIds.length === 0)) return;
 
@@ -63,32 +110,30 @@ export function useChat(sessionId: string) {
       abortStreamRef.current?.();
       abortStreamRef.current = null;
 
+      // Reset thought trace for new message
+      setThoughtSteps([]);
+      setTotalElapsed(undefined);
+      setIsTraceCollapsed(false);
+      streamStartRef.current = Date.now();
+
       // Optimistic user message
-      const userMessage: Message = {
-        id: uuidv4(),
-        role: 'user',
-        content: text,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, userMessage]);
+      setMessages(prev => [
+        ...prev,
+        { id: uuidv4(), role: 'user', content: text, timestamp: new Date() },
+      ]);
+
       setIsLoading(true);
+      setIsStreaming(true);
       setError(null);
       setHitlPending(false);
 
-      // Placeholder assistant message that we'll fill in via tokens
+      // Placeholder assistant message filled in by tokens
       const assistantId = uuidv4();
       setMessages(prev => [
         ...prev,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          isStreaming: true,
-        },
+        { id: assistantId, role: 'assistant', content: '', timestamp: new Date(), isStreaming: true },
       ]);
 
-      // Accumulate streamed tokens
       let accumulated = '';
 
       const abort = chatService.streamMessage(
@@ -96,32 +141,25 @@ export function useChat(sessionId: string) {
         sessionId,
         attachmentIds ?? [],
         {
-          // Thought trace events — update a separate "thoughts" field if your
-          // UI uses it; if not, they're safely ignored here.
-          onThought: (_thought) => {
-            // Thought trace UI reads from a separate state/component;
-            // if you want to surface it in-message you can extend Message
-            // to include a `thoughts` array and push here.
+          onThought: (thoughtText, eventType) => {
+            pushThoughtStep(thoughtText, eventType);
           },
 
           onToken: (chunk) => {
             accumulated += chunk;
             setMessages(prev =>
               prev.map(m =>
-                m.id === assistantId
-                  ? { ...m, content: accumulated, isStreaming: true }
-                  : m,
+                m.id === assistantId ? { ...m, content: accumulated, isStreaming: true } : m,
               ),
             );
           },
 
           onHitl: ({ run_id, ticker, raw_input, message: hitlMsg }) => {
-            // Replace placeholder with HITL info message, then surface confirm UI
+            finaliseThoughtSteps();
+            setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
             setMessages(prev =>
               prev.map(m =>
-                m.id === assistantId
-                  ? { ...m, content: hitlMsg, isStreaming: false }
-                  : m,
+                m.id === assistantId ? { ...m, content: hitlMsg, isStreaming: false } : m,
               ),
             );
             setHitlPending(true);
@@ -129,36 +167,35 @@ export function useChat(sessionId: string) {
             setHitlRawInput(raw_input);
             setHitlRunId(run_id);
             setIsLoading(false);
+            setIsStreaming(false);
           },
 
           onDone: (fullText) => {
-            // Finalise the message — use accumulated tokens as canonical text
+            finaliseThoughtSteps();
+            setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
             const final = fullText || accumulated;
             setMessages(prev =>
               prev.map(m =>
-                m.id === assistantId
-                  ? { ...m, content: final, isStreaming: false }
-                  : m,
+                m.id === assistantId ? { ...m, content: final, isStreaming: false } : m,
               ),
             );
             setIsLoading(false);
+            setIsStreaming(false);
             abortStreamRef.current = null;
           },
 
           onError: (msg) => {
+            finaliseThoughtSteps();
             setError(msg);
             setMessages(prev =>
               prev.map(m =>
                 m.id === assistantId
-                  ? {
-                    ...m,
-                    content: `⚠️ Error: ${msg}. Please try again.`,
-                    isStreaming: false,
-                  }
+                  ? { ...m, content: `⚠️ Error: ${msg}. Please try again.`, isStreaming: false }
                   : m,
               ),
             );
             setIsLoading(false);
+            setIsStreaming(false);
             abortStreamRef.current = null;
           },
         },
@@ -166,18 +203,20 @@ export function useChat(sessionId: string) {
 
       abortStreamRef.current = abort;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sessionId],
   );
 
-  // ── confirmTicker — calls REST /confirm, not SSE ──────────────────
+  // Keep old name as alias so nothing else breaks
+  const sendMessage = sendStreamingMessage;
+
+  // ── confirmTicker — REST /confirm path ───────────────────────────────
 
   const confirmTicker = useCallback(
     async (confirmed: boolean, correctedTicker?: string) => {
       if (!hitlRunId) return;
-
       setIsLoading(true);
       setHitlPending(false);
-
       try {
         const response = await chatService.confirmTicker({
           session_id: sessionId,
@@ -191,12 +230,7 @@ export function useChat(sessionId: string) {
         setError(errMsg);
         setMessages(prev => [
           ...prev,
-          {
-            id: uuidv4(),
-            role: 'assistant',
-            content: `⚠️ Error: ${errMsg}. Please try again.`,
-            timestamp: new Date(),
-          },
+          { id: uuidv4(), role: 'assistant', content: `⚠️ Error: ${errMsg}. Please try again.`, timestamp: new Date() },
         ]);
       } finally {
         setIsLoading(false);
@@ -205,7 +239,7 @@ export function useChat(sessionId: string) {
     [sessionId, hitlRunId, handleResponse],
   );
 
-  // ── misc helpers ──────────────────────────────────────────────────
+  // ── misc helpers ──────────────────────────────────────────────────────
 
   const loadHistory = useCallback(async () => {
     try {
@@ -220,7 +254,7 @@ export function useChat(sessionId: string) {
         })),
       );
     } catch {
-      // Silently fail — history is best-effort
+      // best-effort
     }
   }, [sessionId]);
 
@@ -234,22 +268,40 @@ export function useChat(sessionId: string) {
     abortStreamRef.current?.();
     abortStreamRef.current = null;
     setMessages([]);
+    setThoughtSteps([]);
+    setTotalElapsed(undefined);
     setHitlPending(false);
+    setIsStreaming(false);
+    setIsLoading(false);
   }, []);
 
   return {
+    // Core
     messages,
     setMessages,
     isLoading,
     error,
-    sendMessage,
-    loadHistory,
-    markStreamingComplete,
-    clearMessages,
+
+    // Streaming
+    isStreaming,          // used as isAgentStreaming in App.tsx
+    sendStreamingMessage, // primary name App.tsx uses
+    sendMessage,          // alias
+
+    // Thought Trace — all read by App.tsx
+    thoughtSteps,
+    totalElapsed,
+    isTraceCollapsed,
+    setIsTraceCollapsed,
+
     // HITL
     hitlPending,
     hitlTicker,
     hitlRawInput,
     confirmTicker,
+
+    // Misc
+    loadHistory,
+    markStreamingComplete,
+    clearMessages,
   };
 }

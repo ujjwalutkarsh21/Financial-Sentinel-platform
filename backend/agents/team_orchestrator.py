@@ -5,7 +5,7 @@ from pathlib import Path
 from agno.agent import Agent
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.models.azure import AzureAIFoundry
+from agno.models.azure import AzureOpenAI
 from agno.db.sqlite import SqliteDb
 from dotenv import load_dotenv
 
@@ -113,7 +113,7 @@ def create_financial_sentinel(research_agent: Agent) -> Team:
     # Llama-3.3-70b (and other NVIDIA-hosted models) return a 400 error
     # when the framework tries to fan out multiple tool calls in a single
     # request.  Forcing sequential calls eliminates the error entirely.
-    leader_model = AzureAIFoundry(id="gpt-5.2-chat")
+    leader_model = AzureOpenAI(id="gpt-5.2-chat")
 
     return Team(
         name="Corp8AI Financial Sentinel",
