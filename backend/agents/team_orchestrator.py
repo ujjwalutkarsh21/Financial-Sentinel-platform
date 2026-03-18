@@ -1,9 +1,11 @@
 """Team orchestrator — factory for session-scoped Financial Sentinel teams."""
 
+from pathlib import Path
+
 from agno.agent import Agent
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.models.nvidia import Nvidia
+from agno.models.azure import AzureAIFoundry
 from agno.db.sqlite import SqliteDb
 from dotenv import load_dotenv
 
@@ -34,7 +36,12 @@ from agents.validator_agent import validator_agent
 #      → Leader synthesizes final report
 # =====================================================================
 
-db = SqliteDb(db_file="tmp/agno_memory.db")
+# FIX 1a: Use an absolute path so the DB is always found regardless of
+# the working directory the server is launched from.
+_DB_PATH = Path(__file__).parent.parent / "tmp" / "agno_memory.db"
+_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+db = SqliteDb(db_file=str(_DB_PATH))
 
 _SENTINEL_INSTRUCTIONS = [
     # ── IDENTITY ──
@@ -102,6 +109,12 @@ def create_financial_sentinel(research_agent: Agent) -> Team:
     Create a Financial Sentinel Team using the given (session-scoped)
     research agent.  All other member agents are session-agnostic singletons.
     """
+    # FIX 1b: Disable parallel tool calls on the leader model.
+    # Llama-3.3-70b (and other NVIDIA-hosted models) return a 400 error
+    # when the framework tries to fan out multiple tool calls in a single
+    # request.  Forcing sequential calls eliminates the error entirely.
+    leader_model = AzureAIFoundry(id="gpt-5.2-chat")
+
     return Team(
         name="Corp8AI Financial Sentinel",
         mode=TeamMode.coordinate,
@@ -109,7 +122,7 @@ def create_financial_sentinel(research_agent: Agent) -> Team:
         update_memory_on_run=False,
         read_chat_history=True,
         add_history_to_context=True,
-        model=Nvidia(id="meta/llama-3.3-70b-instruct"),
+        model=leader_model,
         members=[
             market_agent,
             news_agent,

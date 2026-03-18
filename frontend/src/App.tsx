@@ -7,16 +7,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useUpload } from './hooks/useUpload';
 import { useSession } from './hooks/useSession';
-import { 
-  Send, 
-  Paperclip, 
-  X, 
-  FileText, 
-  Table, 
-  File as FileIcon, 
-  LogOut, 
-  Plus, 
-  TrendingUp, 
+import {
+  Send,
+  Paperclip,
+  X,
+  FileText,
+  Table,
+  File as FileIcon,
+  LogOut,
+  Plus,
+  TrendingUp,
   AlertCircle,
   Cpu,
   Database,
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { resetSession as apiResetSession } from './services/chatService';
 import { motion, AnimatePresence } from 'motion/react';
+import { ThoughtTrace } from './components/ThoughtTrace';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { v4 as uuidv4 } from 'uuid';
@@ -151,6 +152,11 @@ export default function StockMindChat() {
   const attachedFiles = uploadHook.stagedFiles;
   const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
   const isStreaming = chat.isLoading;
+  const isAgentStreaming = chat.isStreaming;
+  const thoughtSteps = chat.thoughtSteps;
+  const totalElapsed = chat.totalElapsed;
+  const isTraceCollapsed = chat.isTraceCollapsed;
+  const setIsTraceCollapsed = chat.setIsTraceCollapsed;
   const [isDragging, setIsDragging] = useState(false);
   const [exitModalOpen, setExitModalOpen] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
@@ -173,7 +179,7 @@ export default function StockMindChat() {
     if (snapshot.messages.length > 0 && messages.length === 0) {
       setMessages(snapshot.messages);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.activeSessionId]);
 
   // Save snapshot whenever messages change so localStorage stays in sync
@@ -181,7 +187,7 @@ export default function StockMindChat() {
     if (messages.length > 0) {
       session.saveSnapshot(messages, uploadedFiles);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
   useEffect(() => {
@@ -214,7 +220,7 @@ export default function StockMindChat() {
     setAgentStatus({ data: true, research: true, rag: fileIds.length > 0 });
 
     // This calls the API with optimistic user message insertion
-    await chat.sendMessage(text, fileIds.length > 0 ? fileIds : undefined);
+    await chat.sendStreamingMessage(text, fileIds.length > 0 ? fileIds : undefined);
 
     setAgentStatus({ data: false, research: false, rag: false });
   };
@@ -407,7 +413,7 @@ export default function StockMindChat() {
                       <p className="text-xs font-medium truncate">{file.name}</p>
                       <p className="text-[10px] font-mono text-white/20">{formatSize(file.size)}</p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => removeUploadedFile(file.id)}
                       className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
                     >
@@ -434,7 +440,7 @@ export default function StockMindChat() {
       {/* MAIN PANEL */}
       <main className="flex-1 flex flex-col relative">
         <div className="scanline" />
-        
+
         {/* TOP BAR */}
         <header className="h-12 border-b border-white/5 flex items-center justify-between px-6 bg-[#0A0C10]/80 backdrop-blur-md z-30">
           <div className="flex items-center gap-4">
@@ -533,7 +539,7 @@ export default function StockMindChat() {
         </header>
 
         {/* CHAT AREA */}
-        <div 
+        <div
           className="flex-1 overflow-y-auto p-6 space-y-8 relative"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -542,7 +548,7 @@ export default function StockMindChat() {
           {/* DRAG OVERLAY */}
           <AnimatePresence>
             {isDragging && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -559,63 +565,75 @@ export default function StockMindChat() {
           </AnimatePresence>
 
           {messages.map((msg, idx) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 20, x: msg.role === 'user' ? 20 : -20 }}
-              animate={{ opacity: 1, y: 0, x: 0 }}
-              transition={{ delay: 0.1 }}
-              className={cn(
-                "flex flex-col max-w-[85%] lg:max-w-[70%]",
-                msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
-              )}
-            >
-              <div className={cn(
-                "p-4 relative",
-                msg.role === 'user' 
-                  ? "bg-[#121418] border-l-2 border-[#00FF85]" 
-                  : "bg-[#0E1014] border border-white/5"
-              )}>
-                <div className="text-sm leading-relaxed markdown-body">
-                  {msg.isStreaming ? (
-                    <Typewriter text={msg.content} onComplete={() => {
-                      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m));
-                    }} />
-                  ) : (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+            <React.Fragment key={msg.id}>
+              <motion.div
+                initial={{ opacity: 0, y: 20, x: msg.role === 'user' ? 20 : -20 }}
+                animate={{ opacity: 1, y: 0, x: 0 }}
+                transition={{ delay: 0.1 }}
+                className={cn(
+                  "flex flex-col max-w-[85%] lg:max-w-[70%]",
+                  msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+                )}
+              >
+                <div className={cn(
+                  "p-4 relative",
+                  msg.role === 'user'
+                    ? "bg-[#121418] border-l-2 border-[#00FF85]"
+                    : "bg-[#0E1014] border border-white/5"
+                )}>
+                  <div className="text-sm leading-relaxed markdown-body">
+                    {msg.isStreaming ? (
+                      <Typewriter text={msg.content} onComplete={() => {
+                        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m));
+                      }} />
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    )}
+                  </div>
+
+                  {/* DATA CARDS */}
+                  {msg.data?.metrics && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
+                      {msg.data.metrics.map((m: any, i: number) => (
+                        <MetricCard key={i} {...m} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* DATA TABLE */}
+                  {msg.data?.table && (
+                    <DataTable {...msg.data.table} />
+                  )}
+
+                  {/* SOURCES */}
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
+                      {msg.sources.map((source, i) => (
+                        <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 text-[10px] font-mono text-white/40 border border-white/5">
+                          {source.includes('.pdf') ? <FileText size={10} /> : <Globe size={10} />}
+                          {source}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
 
-                {/* DATA CARDS */}
-                {msg.data?.metrics && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
-                    {msg.data.metrics.map((m: any, i: number) => (
-                      <MetricCard key={i} {...m} />
-                    ))}
-                  </div>
-                )}
-
-                {/* DATA TABLE */}
-                {msg.data?.table && (
-                  <DataTable {...msg.data.table} />
-                )}
-
-                {/* SOURCES */}
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
-                    {msg.sources.map((source, i) => (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 text-[10px] font-mono text-white/40 border border-white/5">
-                        {source.includes('.pdf') ? <FileText size={10} /> : <Globe size={10} />}
-                        {source}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              <span className="text-[9px] font-mono text-white/20 mt-2">
-                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </motion.div>
+                <span className="text-[9px] font-mono text-white/20 mt-2">
+                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </motion.div>
+              {msg.role === 'assistant' && idx === messages.length - 1 && (isAgentStreaming || thoughtSteps.length > 0) && (
+                <div className="mr-auto w-full max-w-[85%] lg:max-w-[70%] mt-2">
+                  <ThoughtTrace
+                    steps={thoughtSteps}
+                    isStreaming={isAgentStreaming}
+                    totalElapsed={totalElapsed}
+                    isCollapsed={isTraceCollapsed}
+                    onToggleCollapse={() => setIsTraceCollapsed((v: boolean) => !v)}
+                  />
+                </div>
+              )}
+            </React.Fragment>
           ))}
           <div ref={chatEndRef} />
         </div>
@@ -677,7 +695,7 @@ export default function StockMindChat() {
               )}
             </AnimatePresence>
             <div className="bg-[#121418] border border-white/10 p-2 focus-within:border-[#00FF85]/50 transition-all">
-              
+
               {/* FILE PREVIEW CHIPS */}
               <AnimatePresence>
                 {attachedFiles.length > 0 && (
@@ -702,18 +720,18 @@ export default function StockMindChat() {
               </AnimatePresence>
 
               <div className="flex items-end gap-2">
-                <button 
+                <button
                   onClick={() => fileInputRef.current?.click()}
                   className="p-3 text-white/40 hover:text-[#00FF85] transition-colors"
                 >
                   <Paperclip size={20} />
                 </button>
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileAttach} 
-                  multiple 
-                  className="hidden" 
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileAttach}
+                  multiple
+                  className="hidden"
                   accept=".pdf,.csv,.xlsx,.txt,.docx"
                 />
                 <textarea
@@ -729,7 +747,7 @@ export default function StockMindChat() {
                   className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 font-mono resize-none min-h-[44px] max-h-[200px]"
                   rows={1}
                 />
-                <button 
+                <button
                   onClick={() => handleSendMessage()}
                   disabled={!inputText.trim() && attachedFiles.length === 0}
                   className={cn(
