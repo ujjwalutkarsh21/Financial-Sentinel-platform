@@ -1,14 +1,14 @@
 from agno.agent import Agent
 from tools.market_tool import get_stock_data
 # from tools.news_tool import search_news <- not using right now, inbuilt function is working better
-from agno.models.groq import Groq
+from agno.models.azure import AzureOpenAI
 from dotenv import load_dotenv
 from agno.tools.duckduckgo import DuckDuckGoTools
 
 load_dotenv()
 
 stock_agent = Agent(
-    model=Groq(id="openai/gpt-oss-120b"),
+    model=AzureOpenAI(id="gpt-5.2-chat"),
     name="Stock Movement Analyst",
 
     instructions="""

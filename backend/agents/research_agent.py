@@ -3,7 +3,7 @@
 from agno.agent import Agent
 from agno.knowledge.knowledge import Knowledge
 from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.models.nvidia import Nvidia
+from agno.models.azure import AzureOpenAI
 from agno.vectordb.lancedb import LanceDb, SearchType
 from dotenv import load_dotenv
 
@@ -55,7 +55,7 @@ def create_research_agent(session_id: str) -> Agent:
     return Agent(
         name="Financial Research Analyst",
         role="Deep research on financial documents (SEC filings, earnings reports) using RAG with vector search",
-        model=Nvidia(id="microsoft/phi-3-medium-128k-instruct"),
+        model=AzureOpenAI(id="gpt-5.2-chat"),
         description="You are a financial research analyst that ONLY uses provided document context.",
         instructions=_RESEARCH_INSTRUCTIONS,
         use_instruction_tags=True,

@@ -8,12 +8,11 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from agno.team import Team
-
+from tools.market_tool import _resolve_ticker, pre_approve_ticker
 from agents.research_agent import create_research_agent, create_session_knowledge
 from agents.team_orchestrator import create_financial_sentinel
 from schemas.chat_schema import ChatResponse
 from services import ingestion_service, upload_service
-from tools.market_tool import _resolve_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +45,16 @@ def _extract_pause_info(pause_event) -> tuple[str | None, list, str, str]:
     lightweight RunPausedEvent.  Neither is guaranteed to carry all attrs.
     """
     agent_run_id: str | None = getattr(pause_event, "run_id", None)
+
+    if not agent_run_id:
+        agent_run_id = (
+            getattr(pause_event, "session_run_id", None) or
+            getattr(pause_event, "id", None)
+        )
+    
+    logger.warning("HITL pause — agent_run_id=%s, type=%s, attrs=%s",
+                   agent_run_id, type(pause_event).__name__,
+                   [a for a in dir(pause_event) if not a.startswith("_")])
 
     requirements: list = []
     if hasattr(pause_event, "active_requirements"):
@@ -166,7 +175,8 @@ async def stream_orchestrator(
                 our_run_id = str(uuid.uuid4())
                 _paused_runs[our_run_id] = {
                     "team":         team,
-                    "agent_run_id": agent_run_id,
+                    "run_response": event,           # ← store the full pause event
+                    "agent_run_id": agent_run_id,   # ← ADD THIS
                     "requirements": requirements,
                     "session_id":   session_id,
                     "user_id":      _USER_ID,
@@ -238,7 +248,8 @@ def _run_orchestrator(team: Team, message: str, session_id: str, user_id: str) -
         our_run_id = str(uuid.uuid4())
         _paused_runs[our_run_id] = {
             "team":         team,
-            "agent_run_id": agent_run_id,
+            "run_response": run_response,    # ← store the full pause response
+            "agent_run_id": agent_run_id,   # ← ADD THIS
             "requirements": requirements,
             "session_id":   session_id,
             "user_id":      user_id,
@@ -262,68 +273,150 @@ def _run_orchestrator(team: Team, message: str, session_id: str, user_id: str) -
 def _resume_orchestrator(
     run_id: str, confirmed: bool, corrected_ticker: str | None = None
 ) -> dict:
-    """
-    Resume a paused HITL run using stored agent_run_id + requirements.
-
-    Does NOT use run_response.messages — that attribute doesn't exist on
-    RunPausedEvent and was the source of the original AttributeError.
-    """
     paused = _paused_runs.pop(run_id, None)
     if not paused:
         return {"hitl_pending": False, "text": "Error: expired or invalid confirmation session."}
 
-    team:         Team       = paused["team"]
-    agent_run_id: str | None = paused["agent_run_id"]
-    requirements: list       = paused["requirements"]
-    session_id:   str        = paused["session_id"]
-    user_id:      str        = paused["user_id"]
+    team         = paused["team"]
+    pause_event  = paused["run_response"]
+    requirements = paused["requirements"]
+    agent_run_id = paused["agent_run_id"]
+    session_id   = paused["session_id"]
+    user_id      = paused["user_id"]
 
+    # Extract ticker info before confirming/rejecting
+    raw_input = ""
+    resolved_ticker_val = ""
     for req in requirements:
         if not getattr(req, "needs_confirmation", False):
             continue
+        tool_execution = getattr(req, "tool_execution", None)
+        tool_args = getattr(tool_execution, "tool_args", {}) if tool_execution else {}
+        raw_input = tool_args.get("user_input", "")
+        resolved_ticker_val = _resolve_ticker(raw_input)
+
         if confirmed:
             req.confirm()
         else:
             corrected = (corrected_ticker or "").strip().upper()
             req.reject(
                 note=(
-                    f"User rejected the ticker. "
-                    f"Use '{corrected}' instead. Call resolve_and_confirm_ticker "
-                    f"with user_input='{corrected}' to confirm the new ticker."
+                    f"User rejected. Use '{corrected}' instead. "
+                    f"Call resolve_and_confirm_ticker with user_input='{corrected}'."
                 )
             )
 
-    # Pass run_id + requirements — NOT run_response / .messages
-    resumed = team.continue_run(
-        run_id=agent_run_id,
-        requirements=requirements,
-        stream=False,
-        user_id=user_id,
-        session_id=session_id,
+    ticker_to_use = (
+        (corrected_ticker or "").strip().upper()
+        or resolved_ticker_val
+        or raw_input.upper()
     )
 
-    # Agent may pause again (rejected ticker, model retries)
-    if getattr(resumed, "is_paused", False):
-        new_agent_run_id, new_reqs, raw_input, resolved_ticker = _extract_pause_info(resumed)
+    # If pause_event has .messages (TeamRunOutput), use team.continue_run()
+    if hasattr(pause_event, "messages") and pause_event.messages is not None:
+        logger.info("Resuming via team.continue_run() — pause_event has .messages")
+        try:
+            resumed = team.continue_run(
+                run_response=pause_event,
+                requirements=requirements,
+                stream=False,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if getattr(resumed, "is_paused", False):
+                new_agent_run_id, new_reqs, new_raw, new_ticker = _extract_pause_info(resumed)
+                new_run_id = str(uuid.uuid4())
+                _paused_runs[new_run_id] = {
+                    "team":         team,
+                    "run_response": resumed,
+                    "agent_run_id": new_agent_run_id,
+                    "requirements": new_reqs,
+                    "session_id":   session_id,
+                    "user_id":      user_id,
+                }
+                return {
+                    "hitl_pending":   True,
+                    "hitl_ticker":    new_ticker,
+                    "hitl_raw_input": new_raw,
+                    "hitl_run_id":    new_run_id,
+                }
+            text = getattr(resumed, "content", None) or str(resumed)
+            return {"hitl_pending": False, "text": text}
+        except Exception as e:
+            logger.warning("team.continue_run failed: %s", e)
 
-        new_run_id = str(uuid.uuid4())
-        _paused_runs[new_run_id] = {
-            "team":         team,
-            "agent_run_id": new_agent_run_id,
-            "requirements": new_reqs,
-            "session_id":   session_id,
-            "user_id":      user_id,
-        }
+    # Pause event is RunPausedEvent (no .messages) — try member agent first
+    paused_agent_id = getattr(pause_event, "agent_id", None)
+    member_agent = None
+    for m in team.members:
+        mid = getattr(m, "agent_id", None) or getattr(m, "id", None)
+        if str(mid) == str(paused_agent_id):
+            member_agent = m
+            break
 
-        return {
-            "hitl_pending":   True,
-            "hitl_ticker":    resolved_ticker,
-            "hitl_raw_input": raw_input,
-            "hitl_run_id":    new_run_id,
-        }
+    if member_agent is not None and agent_run_id:
+        logger.info("Resuming via member_agent.continue_run() run_id=%s", agent_run_id)
+        try:
+            resumed = member_agent.continue_run(
+                run_id=agent_run_id,
+                requirements=requirements,
+                stream=False,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if getattr(resumed, "is_paused", False):
+                new_agent_run_id, new_reqs, new_raw, new_ticker = _extract_pause_info(resumed)
+                new_run_id = str(uuid.uuid4())
+                _paused_runs[new_run_id] = {
+                    "team":         team,
+                    "run_response": resumed,
+                    "agent_run_id": new_agent_run_id,
+                    "requirements": new_reqs,
+                    "session_id":   session_id,
+                    "user_id":      user_id,
+                }
+                return {
+                    "hitl_pending":   True,
+                    "hitl_ticker":    new_ticker,
+                    "hitl_raw_input": new_raw,
+                    "hitl_run_id":    new_run_id,
+                }
+            text = getattr(resumed, "content", None) or str(resumed)
+            return {"hitl_pending": False, "text": text}
+        except Exception as e:
+            logger.warning("member_agent.continue_run failed (%s) — using re-run fallback", e)
 
-    text = getattr(resumed, "content", None) or str(resumed)
-    return {"hitl_pending": False, "text": text}
+        # Last resort: pre-approve the ticker so resolve_and_confirm_ticker
+        # skips HITL on the re-run, then run the team fresh
+        logger.info("Fallback re-run with pre-approved ticker=%s", ticker_to_use)
+        pre_approve_ticker(ticker_to_use)   # ← this is the key line
+    
+        run_response = team.run(
+            f"Complete the full financial analysis for {ticker_to_use}.",
+            stream=False,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if getattr(run_response, "is_paused", False):
+            # Still paused = different ticker triggered HITL, handle normally
+            new_agent_run_id, new_reqs, new_raw, new_ticker = _extract_pause_info(run_response)
+            new_run_id = str(uuid.uuid4())
+            _paused_runs[new_run_id] = {
+                "team":         team,
+                "run_response": run_response,
+                "agent_run_id": new_agent_run_id,
+                "requirements": new_reqs,
+                "session_id":   session_id,
+                "user_id":      user_id,
+            }
+            return {
+                "hitl_pending":   True,
+                "hitl_ticker":    new_ticker,
+                "hitl_raw_input": new_raw,
+                "hitl_run_id":    new_run_id,
+            }
+        text = getattr(run_response, "content", None) or str(run_response)
+        return {"hitl_pending": False, "text": text}    
 
 
 # ---------------------------------------------------------------------------

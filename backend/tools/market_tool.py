@@ -4,6 +4,33 @@ import numpy as np
 from datetime import datetime, timedelta
 from agno.tools.toolkit import Toolkit
 
+# Tickers pre-approved by user — skips HITL confirmation on re-run
+_pre_approved_tickers: set[str] = set()
+
+def pre_approve_ticker(ticker: str) -> None:
+    _pre_approved_tickers.add(ticker.upper())
+
+def consume_pre_approved_ticker(ticker: str) -> bool:
+    """Returns True and removes if ticker was pre-approved."""
+    t = ticker.upper()
+    if t in _pre_approved_tickers:
+        _pre_approved_tickers.discard(t)
+        return True
+    return False
+
+# ── Pre-confirmed tickers (set by analysis_service on HITL confirm) ──
+# Maps session_id → confirmed ticker string
+_confirmed_tickers: dict[str, str] = {}
+
+def set_confirmed_ticker(session_id: str, ticker: str) -> None:
+    """Called by analysis_service after user confirms a ticker."""
+    _confirmed_tickers[session_id] = ticker.upper()
+
+def get_confirmed_ticker(session_id: str) -> str | None:
+    return _confirmed_tickers.get(session_id)
+
+def clear_confirmed_ticker(session_id: str) -> None:
+    _confirmed_tickers.pop(session_id, None)
 
 # ── Company-name → ticker mapping ──────────────────────────────────
 # Extend this dict freely; it only needs to cover popular names.
@@ -89,21 +116,14 @@ class MarketToolkit(Toolkit):
     # ------------------------------------------------------------------
 
     def resolve_and_confirm_ticker(self, user_input: str) -> str:
-        """
-        Resolve a company name or ticker symbol and confirm it with the user.
-
-        This function MUST be called before any market-data tool.
-        It resolves the input into a valid ticker (e.g. "Tesla" → "TSLA")
-        and pauses execution for human-in-the-loop confirmation.
-
-        After confirmation, return the resolved ticker as plain text so
-        the agent can pass it to get_stock_data, get_historical_performance,
-        get_risk_metrics, and get_technical_indicators.
-        """
         resolved = _resolve_ticker(user_input)
         if not resolved:
             return "ERROR: Empty input. Please provide a company name or ticker symbol."
-
+    
+        # If this ticker was pre-approved (fallback re-run), skip HITL
+        if consume_pre_approved_ticker(resolved):
+            return f"CONFIRMED_TICKER:{resolved}"
+    
         return f"CONFIRMED_TICKER:{resolved}"
 
     # ------------------------------------------------------------------
