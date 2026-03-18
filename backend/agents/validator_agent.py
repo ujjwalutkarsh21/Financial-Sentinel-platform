@@ -1,63 +1,30 @@
 from agno.agent import Agent
-from agno.models.nvidia import Nvidia
-from textwrap import dedent
-import json
-import re
+from agno.models.azure import AzureOpenAI
 from dotenv import load_dotenv
+
 load_dotenv()
 
 validator_agent = Agent(
-
     name="Financial Signal Validator",
-    role="Cross-reference all agent findings to detect contradictions between market data, news sentiment, and document research",
-
-    model=Nvidia(id="meta/llama-4-maverick-17b-128e-instruct"),
-
-    instructions=dedent("""
-        You are a financial validation system.
-
-        Your job is to verify whether financial signals agree or contradict.
-
-        Inputs you will receive:
-        - Market data summary
-        - News signals
-        - Sentiment analysis
-        - Aggregated explanation
-
-        Tasks:
-        1. Check if market movement matches sentiment.
-        2. Check if news signals support the market move.
-        3. Detect contradictions.
-
-        Return strict below JSON only.
-
-        Schema:
-
-        {
-         "validation_status": "aligned | divergence | uncertain",
-         "reason": "short explanation",
-         "confidence": "high | medium | low"
-        }
-    """),
-
-    markdown=False
+    role="Cross-reference market data, news sentiment, and technical signals to detect alignment or divergence",
+    model=AzureOpenAI(id="gpt-5.2-chat"),
+    instructions=[
+        "You are a financial signal validator.",
+        "You receive market data (price, RSI, MAs), news sentiment, and any document research.",
+        "",
+        "Your job:",
+        "1. Check whether price action aligns with or diverges from sentiment.",
+        "2. Note any contradictions between signals.",
+        "3. State an overall integrated bias.",
+        "",
+        "Return your verdict in this exact plain-text format (no JSON, no code blocks):",
+        "",
+        "Validation: [Aligned / Divergence / Uncertain]",
+        "Confidence: [High / Medium / Low]",
+        "Verdict: [2-3 sentences — do signals agree, what is the main contradiction if any, "
+        "and what is the overall integrated bias e.g. Neutral-Bullish / Cautious / Bullish]",
+        "",
+        "Do NOT output JSON. Do NOT add extra text or headings.",
+    ],
+    markdown=True,
 )
-
-def validate_analysis(input_data: str):
-
-    response = validator_agent.run(input_data)
-
-    content = response.content.strip()
-
-    content = re.sub(r"```json|```", "", content).strip()
-
-    try:
-        validation = json.loads(content)
-    except:
-        validation = {
-            "validation_status": "uncertain",
-            "reason": "validator parsing failed",
-            "confidence": "low"
-        }
-
-    return validation
