@@ -15,6 +15,25 @@ load_dotenv()
 _LANCEDB_URI = "tmp/lancedb"
 _EMBEDDER = GeminiEmbedder(id="gemini-embedding-001")
 
+# Patch the shared embedder to avoid "empty part" Gemini API errors
+# from queries or other search-time components.
+def _safe_patch_embedder(emb):
+    for m_name in ["get_embedding", "get_embeddings", "embed", "get_embedding_batch"]:
+        orig = getattr(emb, m_name, None)
+        if orig and callable(orig) and not hasattr(orig, "_is_safe"):
+            def _make_safe(o_func):
+                def _safe_call(*args, **kwargs):
+                    inp = args[0] if args else kwargs.get("text") or kwargs.get("texts")
+                    if isinstance(inp, str) and not inp.strip():
+                        return [0.0] * getattr(emb, "dimensions", 768)
+                    return o_func(*args, **kwargs)
+                _safe_call._is_safe = True
+                return _safe_call
+            setattr(emb, m_name, _make_safe(orig))
+
+_safe_patch_embedder(_EMBEDDER)
+
+
 _RESEARCH_INSTRUCTIONS = [
     "Use ONLY information from the DOCUMENT CONTEXT.",
     "Do NOT use prior knowledge or invent facts.",

@@ -8,8 +8,8 @@ import type { ThoughtStep } from '../components/ThoughtTrace';
 
 export function useChat(sessionId: string) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);   // true while any request is in-flight
-  const [isStreaming, setIsStreaming] = useState(false); // true while SSE tokens are flowing
+  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ── Thought Trace state ────────────────────────────────────────────
@@ -24,12 +24,10 @@ export function useChat(sessionId: string) {
   const [hitlRawInput, setHitlRawInput] = useState('');
   const [hitlRunId, setHitlRunId] = useState('');
 
-  // Ref to abort the in-flight SSE stream
   const abortStreamRef = useRef<(() => void) | null>(null);
 
   // ── helpers ──────────────────────────────────────────────────────────
 
-  /** Map an SSE thought event text to a ThoughtStep icon */
   function iconForThought(text: string, eventType?: string): ThoughtStep['icon'] {
     if (!eventType && !text) return 'brain';
     const t = (eventType ?? text).toLowerCase();
@@ -40,7 +38,6 @@ export function useChat(sessionId: string) {
     return 'brain';
   }
 
-  /** Add a new active ThoughtStep and mark the previous one as done */
   function pushThoughtStep(text: string, eventType?: string) {
     setThoughtSteps(prev => {
       const updated = prev.map(s =>
@@ -59,7 +56,6 @@ export function useChat(sessionId: string) {
     });
   }
 
-  /** Mark all remaining active steps as done */
   function finaliseThoughtSteps() {
     setThoughtSteps(prev =>
       prev.map(s => s.status === 'active' ? { ...s, status: 'done' as const } : s),
@@ -99,24 +95,23 @@ export function useChat(sessionId: string) {
     }
   }, []);
 
-  // ── sendStreamingMessage — primary send path via SSE ─────────────────
-  // App.tsx calls this as `chat.sendStreamingMessage(...)`
+  // ── sendStreamingMessage ──────────────────────────────────────────────
 
   const sendStreamingMessage = useCallback(
     async (text: string, attachmentIds?: string[]) => {
       if (!text.trim() && (!attachmentIds || attachmentIds.length === 0)) return;
 
-      // Cancel any in-flight stream
+      // Snapshot IDs now — before any state mutations
+      const safeAttachmentIds = (attachmentIds ?? []).filter(Boolean);
+
       abortStreamRef.current?.();
       abortStreamRef.current = null;
 
-      // Reset thought trace for new message
       setThoughtSteps([]);
       setTotalElapsed(undefined);
       setIsTraceCollapsed(false);
       streamStartRef.current = Date.now();
 
-      // Optimistic user message
       setMessages(prev => [
         ...prev,
         { id: uuidv4(), role: 'user', content: text, timestamp: new Date() },
@@ -127,25 +122,28 @@ export function useChat(sessionId: string) {
       setError(null);
       setHitlPending(false);
 
-      // Placeholder assistant message filled in by tokens
       const assistantId = uuidv4();
       setMessages(prev => [
         ...prev,
         { id: assistantId, role: 'assistant', content: '', timestamp: new Date(), isStreaming: true },
       ]);
 
+      // Use a ref to track accumulated content so onDone doesn't double-set
       let accumulated = '';
+      // Track whether onDone has fired to avoid stale closures overwriting
+      let doneReceived = false;
 
       const abort = chatService.streamMessage(
         text,
         sessionId,
-        attachmentIds ?? [],
+        safeAttachmentIds,
         {
           onThought: (thoughtText, eventType) => {
             pushThoughtStep(thoughtText, eventType);
           },
 
           onToken: (chunk) => {
+            if (doneReceived) return; // don't update after done
             accumulated += chunk;
             setMessages(prev =>
               prev.map(m =>
@@ -155,6 +153,7 @@ export function useChat(sessionId: string) {
           },
 
           onHitl: ({ run_id, ticker, raw_input, message: hitlMsg }) => {
+            doneReceived = true;
             finaliseThoughtSteps();
             setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
             setMessages(prev =>
@@ -171,12 +170,17 @@ export function useChat(sessionId: string) {
           },
 
           onDone: (fullText) => {
+            doneReceived = true;
             finaliseThoughtSteps();
             setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
+            // Use fullText from server if available, otherwise use accumulated tokens.
+            // The server's fullText is the canonical source — it's already deduplicated.
             const final = fullText || accumulated;
             setMessages(prev =>
               prev.map(m =>
-                m.id === assistantId ? { ...m, content: final, isStreaming: false } : m,
+                m.id === assistantId
+                  ? { ...m, content: final, isStreaming: false }
+                  : m,
               ),
             );
             setIsLoading(false);
@@ -185,6 +189,7 @@ export function useChat(sessionId: string) {
           },
 
           onError: (msg) => {
+            doneReceived = true;
             finaliseThoughtSteps();
             setError(msg);
             setMessages(prev =>
@@ -207,10 +212,9 @@ export function useChat(sessionId: string) {
     [sessionId],
   );
 
-  // Keep old name as alias so nothing else breaks
   const sendMessage = sendStreamingMessage;
 
-  // ── confirmTicker — REST /confirm path ───────────────────────────────
+  // ── confirmTicker ─────────────────────────────────────────────────────
 
   const confirmTicker = useCallback(
     async (confirmed: boolean, correctedTicker?: string) => {
@@ -276,30 +280,21 @@ export function useChat(sessionId: string) {
   }, []);
 
   return {
-    // Core
     messages,
     setMessages,
     isLoading,
     error,
-
-    // Streaming
-    isStreaming,          // used as isAgentStreaming in App.tsx
-    sendStreamingMessage, // primary name App.tsx uses
-    sendMessage,          // alias
-
-    // Thought Trace — all read by App.tsx
+    isStreaming,
+    sendStreamingMessage,
+    sendMessage,
     thoughtSteps,
     totalElapsed,
     isTraceCollapsed,
     setIsTraceCollapsed,
-
-    // HITL
     hitlPending,
     hitlTicker,
     hitlRawInput,
     confirmTicker,
-
-    // Misc
     loadHistory,
     markStreamingComplete,
     clearMessages,

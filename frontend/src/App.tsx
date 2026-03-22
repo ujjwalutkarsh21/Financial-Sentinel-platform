@@ -8,19 +8,9 @@ import { useChat } from './hooks/useChat';
 import { useUpload } from './hooks/useUpload';
 import { useSession } from './hooks/useSession';
 import {
-  Send,
-  Paperclip,
-  X,
-  FileText,
-  Table,
-  File as FileIcon,
-  LogOut,
-  Plus,
-  TrendingUp,
-  AlertCircle,
-  Cpu,
-  Database,
-  Globe
+  Send, Paperclip, X, FileText, Table,
+  File as FileIcon, LogOut, Plus, TrendingUp,
+  AlertCircle, Cpu, Database, Globe
 } from 'lucide-react';
 import { resetSession as apiResetSession } from './services/chatService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -31,12 +21,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-// === UTILS ===
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// === TYPES ===
 interface FileObject {
   id: string;
   name: string;
@@ -44,7 +32,6 @@ interface FileObject {
   type: string;
   uploadedAt: Date;
   file?: File;
-  /** ID returned from backend after upload */
   remoteId?: string;
 }
 
@@ -57,64 +44,47 @@ interface Message {
   data?: any;
   sources?: string[];
   isStreaming?: boolean;
-  hitl?: {
-    type: 'ticker_confirmation';
-    ticker: string;
-  };
+  hitl?: { type: 'ticker_confirmation'; ticker: string };
 }
 
-interface Session {
-  id: string;
-  name: string;
-  timestamp: Date;
-  type: 'research' | 'data' | 'upload';
-}
-
-// === COMPONENTS ===
-
-const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => void }) => {
-  const [displayedText, setDisplayedText] = useState('');
-  const [index, setIndex] = useState(0);
-
+// Simple streaming cursor component — no Typewriter, no duplication
+const StreamingMessage = ({ content, isStreaming, onStreamDone }: {
+  content: string;
+  isStreaming: boolean;
+  onStreamDone?: () => void;
+}) => {
   useEffect(() => {
-    if (index < text.length) {
-      const timeout = setTimeout(() => {
-        setDisplayedText(prev => prev + text[index]);
-        setIndex(prev => prev + 1);
-      }, 5);
-      return () => clearTimeout(timeout);
-    } else if (onComplete) {
-      onComplete();
-    }
-  }, [index, text, onComplete]);
+    if (!isStreaming && onStreamDone) onStreamDone();
+  }, [isStreaming, onStreamDone]);
 
   return (
-    <div className="relative markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayedText}</ReactMarkdown>
-      {index < text.length && (
+    <div className="markdown-body">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      {isStreaming && (
         <span className="inline-block w-1.5 h-4 bg-[#00FF85] ml-1 animate-pulse align-middle" />
       )}
     </div>
   );
 };
 
-const MetricCard = ({ label, value, trend, highlight }: { label: string, value: string, trend: string, highlight?: boolean }) => (
+const MetricCard = ({ label, value, trend, highlight }: {
+  label: string; value: string; trend: string; highlight?: boolean;
+}) => (
   <div className={cn(
     "p-3 border border-white/10 bg-[#121418] flex flex-col gap-1",
     highlight && "border-[#00FF85]/30 bg-[#00FF85]/5"
   )}>
     <span className="text-[10px] font-mono uppercase text-white/40 tracking-wider">{label}</span>
     <div className="flex items-center justify-between">
-      <span className={cn(
-        "text-lg font-mono font-bold",
-        highlight ? "text-[#00FF85]" : "text-[#E8EDF2]"
-      )}>{value}</span>
+      <span className={cn("text-lg font-mono font-bold", highlight ? "text-[#00FF85]" : "text-[#E8EDF2]")}>
+        {value}
+      </span>
       {trend === 'up' && <TrendingUp size={14} className="text-[#00FF85]" />}
     </div>
   </div>
 );
 
-const DataTable = ({ headers, rows }: { headers: string[], rows: string[][] }) => (
+const DataTable = ({ headers, rows }: { headers: string[]; rows: string[][] }) => (
   <div className="w-full overflow-x-auto border border-white/10 mt-4">
     <table className="w-full text-left font-mono text-xs">
       <thead>
@@ -138,42 +108,32 @@ const DataTable = ({ headers, rows }: { headers: string[], rows: string[][] }) =
 );
 
 export default function StockMindChat() {
-  // === SESSION HOOK ===
   const session = useSession();
-
-  // === HOOKS (scoped by session) ===
   const chat = useChat(session.activeSessionId);
   const uploadHook = useUpload(session.activeSessionId);
 
-  // === STATE ===
   const messages = chat.messages;
   const setMessages = chat.setMessages;
   const [inputText, setInputText] = useState('');
   const attachedFiles = uploadHook.stagedFiles;
   const [uploadedFiles, setUploadedFiles] = useState<FileObject[]>([]);
+
   const isStreaming = chat.isLoading;
   const isAgentStreaming = chat.isStreaming;
   const thoughtSteps = chat.thoughtSteps;
   const totalElapsed = chat.totalElapsed;
   const isTraceCollapsed = chat.isTraceCollapsed;
   const setIsTraceCollapsed = chat.setIsTraceCollapsed;
+
   const [isDragging, setIsDragging] = useState(false);
   const [exitModalOpen, setExitModalOpen] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
-  const [agentStatus, setAgentStatus] = useState({
-    data: false,
-    research: false,
-    rag: false
-  });
-  // Track whether the first message of a session has been sent (for auto-rename)
+  const [agentStatus, setAgentStatus] = useState({ data: false, research: false, rag: false });
   const firstMessageSentRef = useRef<Set<string>>(new Set());
-
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // === EFFECTS ===
-
-  // Restore persisted messages for the active session on mount / session switch
+  // ── Restore persisted session ──────────────────────────────────────
   useEffect(() => {
     const snapshot = session.getSnapshot(session.activeSessionId);
     if (snapshot.messages.length > 0 && messages.length === 0) {
@@ -182,7 +142,6 @@ export default function StockMindChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.activeSessionId]);
 
-  // Save snapshot whenever messages change so localStorage stays in sync
   useEffect(() => {
     if (messages.length > 0) {
       session.saveSnapshot(messages, uploadedFiles);
@@ -194,34 +153,42 @@ export default function StockMindChat() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // === HANDLERS ===
+  // ── getAllFileIds: staged + already uploaded in this session ──────
+  const getAllFileIds = (): string[] => {
+    const stagedIds = uploadHook.getStagedIds();
+    const uploadedIds = uploadedFiles
+      .map(f => f.remoteId)
+      .filter((id): id is string => !!id);
+    return Array.from(new Set([...stagedIds, ...uploadedIds]));
+  };
+
+  const totalSessionFiles = uploadedFiles.length + attachedFiles.length;
+
+  // ── Handlers ──────────────────────────────────────────────────────
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!inputText.trim() && attachedFiles.length === 0) return;
 
     const text = inputText;
-    const fileIds = uploadHook.getStagedIds();
+
+    // ✅ Capture ALL file IDs FIRST — before any state mutations clear staged files
+    const fileIds = getAllFileIds();
+
     setInputText('');
 
-    // Move attached to uploaded sidebar
     if (attachedFiles.length > 0) {
       setUploadedFiles(prev => [...prev, ...attachedFiles]);
       uploadHook.clearStaged();
     }
 
-    // Auto-rename session after first user message
     if (!firstMessageSentRef.current.has(session.activeSessionId)) {
       firstMessageSentRef.current.add(session.activeSessionId);
       const truncated = text.length > 28 ? text.substring(0, 28) + '…' : text;
       session.renameSession(session.activeSessionId, truncated);
     }
 
-    // Show agent activity
     setAgentStatus({ data: true, research: true, rag: fileIds.length > 0 });
-
-    // This calls the API with optimistic user message insertion
     await chat.sendStreamingMessage(text, fileIds.length > 0 ? fileIds : undefined);
-
     setAgentStatus({ data: false, research: false, rag: false });
   };
 
@@ -233,11 +200,8 @@ export default function StockMindChat() {
 
   const handleExit = async () => {
     setIsExiting(true);
-    try {
-      await apiResetSession();
-    } catch { /* best-effort */ }
+    try { await apiResetSession(); } catch { /* best-effort */ }
     session.clearAllPersistence();
-    // Hard reload gives a completely fresh state
     window.location.reload();
   };
 
@@ -251,39 +215,13 @@ export default function StockMindChat() {
 
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    // Upload each file immediately via the hook
     files.forEach(f => uploadHook.upload(f));
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const removeAttachedFile = (id: string) => {
-    uploadHook.removeFile(id);
-  };
-
-  const removeUploadedFile = (id: string) => {
-    setUploadedFiles(prev => prev.filter(f => f.id !== id));
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    files.forEach(f => uploadHook.upload(f));
   };
 
   const handleTickerConfirm = async () => {
     await chat.confirmTicker(true);
     setAgentStatus({ data: true, research: true, rag: false });
-    // Status will clear when response arrives
   };
 
   const handleTickerReject = async (newTicker: string) => {
@@ -302,55 +240,28 @@ export default function StockMindChat() {
     <div className="flex h-screen w-full bg-[#0A0C10] text-[#E8EDF2] overflow-hidden font-['Syne']">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;500;600;700;800&display=swap');
-        
         body {
           background-color: #0A0C10;
-          background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+          background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
           background-size: 24px 24px;
         }
-
-        .font-mono {
-          font-family: 'Space Mono', monospace;
-        }
-
-        ::-webkit-scrollbar {
-          width: 4px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.1);
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
+        .font-mono { font-family: 'Space Mono', monospace; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
         .scanline {
-          width: 100%;
-          height: 100px;
-          z-index: 10;
-          background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0) 100%);
-          opacity: 0.1;
-          position: absolute;
-          bottom: 100%;
+          width:100%; height:100px; z-index:10;
+          background: linear-gradient(0deg,rgba(0,0,0,0) 0%,rgba(255,255,255,0.02) 50%,rgba(0,0,0,0) 100%);
+          opacity:0.1; position:absolute; bottom:100%;
           animation: scanline 10s linear infinite;
         }
-
-        @keyframes scanline {
-          0% { bottom: 100%; }
-          100% { bottom: -100px; }
-        }
-
-        .agent-pulse {
-          box-shadow: 0 0 8px rgba(0, 255, 133, 0.4);
-          animation: pulse 2s infinite;
-        }
-
+        @keyframes scanline { 0%{bottom:100%} 100%{bottom:-100px} }
+        .agent-pulse { box-shadow:0 0 8px rgba(0,255,133,0.4); animation:pulse 2s infinite; }
         @keyframes pulse {
-          0% { opacity: 0.6; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.1); }
-          100% { opacity: 0.6; transform: scale(1); }
+          0%{opacity:0.6;transform:scale(1)}
+          50%{opacity:1;transform:scale(1.1)}
+          100%{opacity:0.6;transform:scale(1)}
         }
       `}</style>
 
@@ -364,7 +275,6 @@ export default function StockMindChat() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 space-y-8">
-          {/* SESSIONS */}
           <div>
             <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">Active Sessions</h3>
             <div className="space-y-1">
@@ -393,9 +303,15 @@ export default function StockMindChat() {
             </div>
           </div>
 
-          {/* UPLOADED FILES */}
           <div>
-            <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">Uploaded Files</h3>
+            <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/30 font-bold mb-4 px-2">
+              Uploaded Files
+              {totalSessionFiles > 0 && (
+                <span className="ml-2 px-1.5 py-0.5 bg-[#00FF85]/20 text-[#00FF85] rounded text-[9px]">
+                  {totalSessionFiles} active
+                </span>
+              )}
+            </h3>
             <div className="space-y-2">
               <AnimatePresence>
                 {uploadedFiles.map((file) => (
@@ -414,7 +330,7 @@ export default function StockMindChat() {
                       <p className="text-[10px] font-mono text-white/20">{formatSize(file.size)}</p>
                     </div>
                     <button
-                      onClick={() => removeUploadedFile(file.id)}
+                      onClick={() => setUploadedFiles(prev => prev.filter(f => f.id !== file.id))}
                       className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
                     >
                       <X size={14} />
@@ -423,6 +339,11 @@ export default function StockMindChat() {
                 ))}
               </AnimatePresence>
             </div>
+            {totalSessionFiles > 0 && (
+              <p className="text-[9px] text-[#00FF85]/40 mt-3 px-2 leading-relaxed">
+                📎 All files are automatically included in every query.
+              </p>
+            )}
           </div>
         </div>
 
@@ -444,52 +365,45 @@ export default function StockMindChat() {
         {/* TOP BAR */}
         <header className="h-12 border-b border-white/5 flex items-center justify-between px-6 bg-[#0A0C10]/80 backdrop-blur-md z-30">
           <div className="flex items-center gap-4">
-            <h2 className="text-sm font-bold cursor-pointer hover:text-[#00FF85] transition-colors">
+            <h2 className="text-sm font-bold">
               {session.sessions.find(s => s.id === session.activeSessionId)?.name || 'Untitled Session'}
             </h2>
             <div className="h-4 w-[1px] bg-white/10" />
             <div className="flex items-center gap-2">
-              <div className={cn(
-                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
-                agentStatus.data ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
-              )}>
-                <Database size={10} />
-                Data Agent
-              </div>
-              <div className={cn(
-                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
-                agentStatus.research ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
-              )}>
-                <Globe size={10} />
-                News Agent
-              </div>
-              <div className={cn(
-                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
-                agentStatus.rag ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse" : "border-white/10 text-white/30"
-              )}>
-                <Cpu size={10} />
-                RAG Agent
-              </div>
+              {[
+                { key: 'data', icon: <Database size={10} />, label: 'Data Agent', active: agentStatus.data },
+                { key: 'research', icon: <Globe size={10} />, label: 'News Agent', active: agentStatus.research },
+                {
+                  key: 'rag', icon: <Cpu size={10} />,
+                  label: `RAG Agent${totalSessionFiles > 0 && !agentStatus.rag ? ` (${totalSessionFiles})` : ''}`,
+                  active: agentStatus.rag,
+                  idle: totalSessionFiles > 0,
+                },
+              ].map(({ key, icon, label, active, idle }) => (
+                <div key={key} className={cn(
+                  "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter border transition-all",
+                  active
+                    ? "border-[#00FF85]/50 text-[#00FF85] bg-[#00FF85]/5 agent-pulse"
+                    : idle
+                      ? "border-amber-500/30 text-amber-400/60"
+                      : "border-white/10 text-white/30"
+                )}>
+                  {icon}{label}
+                </div>
+              ))}
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setExitModalOpen(true)}
-              title="Exit — clears all chats, uploads and memory"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-400 border border-red-400/30 hover:bg-red-400/10 hover:border-red-400/60 transition-all active:scale-95"
-            >
-              <LogOut size={14} />
-              Exit
-            </button>
-          </div>
+          <button
+            onClick={() => setExitModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-all active:scale-95"
+          >
+            <LogOut size={14} />Exit
+          </button>
 
-          {/* EXIT CONFIRMATION MODAL */}
           <AnimatePresence>
             {exitModalOpen && (
               <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
                 onClick={() => !isExiting && setExitModalOpen(false)}
               >
@@ -511,24 +425,17 @@ export default function StockMindChat() {
                     </div>
                   </div>
                   <p className="text-sm text-white/60 mb-6 leading-relaxed">
-                    This will permanently delete <span className="text-white font-bold">all chats</span>,
-                    <span className="text-white font-bold"> uploaded files</span>, and
-                    <span className="text-white font-bold"> AI memory</span> for every session.
-                    The page will refresh to a clean state.
+                    This will permanently delete <span className="text-white font-bold">all chats</span>,{' '}
+                    <span className="text-white font-bold">uploaded files</span>, and{' '}
+                    <span className="text-white font-bold">AI memory</span>.
                   </p>
                   <div className="flex gap-3">
-                    <button
-                      onClick={() => setExitModalOpen(false)}
-                      disabled={isExiting}
-                      className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider border border-white/10 hover:bg-white/5 transition-all disabled:opacity-40"
-                    >
+                    <button onClick={() => setExitModalOpen(false)} disabled={isExiting}
+                      className="flex-1 py-2.5 text-xs font-bold uppercase border border-white/10 hover:bg-white/5 transition-all disabled:opacity-40">
                       Cancel
                     </button>
-                    <button
-                      onClick={handleExit}
-                      disabled={isExiting}
-                      className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider bg-red-500 hover:bg-red-600 text-white transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
+                    <button onClick={handleExit} disabled={isExiting}
+                      className="flex-1 py-2.5 text-xs font-bold uppercase bg-red-500 hover:bg-red-600 text-white transition-all active:scale-95 disabled:opacity-60">
                       {isExiting ? 'Clearing…' : 'Exit & Clear All'}
                     </button>
                   </div>
@@ -541,28 +448,35 @@ export default function StockMindChat() {
         {/* CHAT AREA */}
         <div
           className="flex-1 overflow-y-auto p-6 space-y-8 relative"
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault(); setIsDragging(false);
+            Array.from(e.dataTransfer.files).forEach(f => uploadHook.upload(f));
+          }}
         >
-          {/* DRAG OVERLAY */}
           <AnimatePresence>
             {isDragging && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 z-50 bg-[#0A0C10]/80 backdrop-blur-sm flex items-center justify-center p-12"
-              >
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="absolute inset-0 z-50 bg-[#0A0C10]/80 backdrop-blur-sm flex items-center justify-center p-12">
                 <div className="w-full h-full border-2 border-dashed border-[#00FF85] flex flex-col items-center justify-center gap-4 bg-[#00FF85]/5">
-                  <div className="w-16 h-16 rounded-full bg-[#00FF85]/10 flex items-center justify-center">
-                    <Plus size={32} className="text-[#00FF85]" />
-                  </div>
+                  <Plus size={32} className="text-[#00FF85]" />
                   <p className="text-xl font-bold uppercase tracking-widest text-[#00FF85]">Drop files to research</p>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
+
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 opacity-30">
+              <TrendingUp size={40} className="text-[#00FF85]" />
+              <p className="text-sm text-center">
+                {totalSessionFiles > 0
+                  ? `${totalSessionFiles} file(s) ready — ask anything`
+                  : 'Ask about a stock or upload a PDF report'}
+              </p>
+            </div>
+          )}
 
           {messages.map((msg, idx) => (
             <React.Fragment key={msg.id}>
@@ -581,17 +495,17 @@ export default function StockMindChat() {
                     ? "bg-[#121418] border-l-2 border-[#00FF85]"
                     : "bg-[#0E1014] border border-white/5"
                 )}>
-                  <div className="text-sm leading-relaxed markdown-body">
-                    {msg.isStreaming ? (
-                      <Typewriter text={msg.content} onComplete={() => {
-                        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m));
-                      }} />
-                    ) : (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    )}
-                  </div>
+                  {/* ✅ Single render path — no Typewriter duplication */}
+                  <StreamingMessage
+                    content={msg.content}
+                    isStreaming={!!msg.isStreaming}
+                    onStreamDone={() => {
+                      setMessages(prev =>
+                        prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m)
+                      );
+                    }}
+                  />
 
-                  {/* DATA CARDS */}
                   {msg.data?.metrics && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
                       {msg.data.metrics.map((m: any, i: number) => (
@@ -600,12 +514,8 @@ export default function StockMindChat() {
                     </div>
                   )}
 
-                  {/* DATA TABLE */}
-                  {msg.data?.table && (
-                    <DataTable {...msg.data.table} />
-                  )}
+                  {msg.data?.table && <DataTable {...msg.data.table} />}
 
-                  {/* SOURCES */}
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
                       {msg.sources.map((source, i) => (
@@ -617,11 +527,11 @@ export default function StockMindChat() {
                     </div>
                   )}
                 </div>
-
                 <span className="text-[9px] font-mono text-white/20 mt-2">
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </motion.div>
+
               {msg.role === 'assistant' && idx === messages.length - 1 && (isAgentStreaming || thoughtSteps.length > 0) && (
                 <div className="mr-auto w-full max-w-[85%] lg:max-w-[70%] mt-2">
                   <ThoughtTrace
@@ -642,13 +552,10 @@ export default function StockMindChat() {
         <div className="p-6 bg-gradient-to-t from-[#0A0C10] via-[#0A0C10] to-transparent">
           <div className="max-w-4xl mx-auto relative">
 
-            {/* HITL CONFIRMATION BANNER */}
             <AnimatePresence>
               {chat.hitlPending && (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
                   className="mb-4 border border-amber-500/30 bg-amber-500/5 p-5"
                 >
                   <div className="flex items-center gap-2 mb-3 text-amber-500">
@@ -656,27 +563,24 @@ export default function StockMindChat() {
                     <span className="text-xs font-bold uppercase tracking-wider">Ticker Confirmation Required</span>
                   </div>
                   <p className="text-sm mb-4 text-white/70">
-                    I resolved <span className="font-mono font-bold text-white">"{chat.hitlRawInput}"</span> → <span className="font-mono font-bold text-amber-400 text-lg">{chat.hitlTicker}</span>
+                    I resolved <span className="font-mono font-bold text-white">"{chat.hitlRawInput}"</span>
+                    {' → '}
+                    <span className="font-mono font-bold text-amber-400 text-lg">{chat.hitlTicker}</span>
                   </p>
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={handleTickerConfirm}
-                      disabled={isStreaming}
+                      onClick={handleTickerConfirm} disabled={isStreaming}
                       className="px-5 py-2.5 bg-[#00FF85] text-black text-xs font-bold uppercase tracking-wider hover:bg-[#00FF85]/80 transition-all active:scale-95 disabled:opacity-50"
                     >
                       ✓ Confirm {chat.hitlTicker}
                     </button>
                     <div className="flex items-center gap-2">
                       <input
-                        id="hitl-correction-input"
-                        type="text"
+                        id="hitl-correction-input" type="text"
                         placeholder="Enter correct ticker"
                         className="bg-[#121418] border border-white/10 px-3 py-2 text-xs font-mono uppercase w-36 focus:border-amber-500/50 focus:outline-none"
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const el = e.target as HTMLInputElement;
-                            handleTickerReject(el.value);
-                          }
+                          if (e.key === 'Enter') handleTickerReject((e.target as HTMLInputElement).value);
                         }}
                       />
                       <button
@@ -685,7 +589,7 @@ export default function StockMindChat() {
                           if (el?.value) handleTickerReject(el.value);
                         }}
                         disabled={isStreaming}
-                        className="px-4 py-2.5 border border-amber-500/30 text-amber-500 text-xs font-bold uppercase tracking-wider hover:bg-amber-500/10 transition-all active:scale-95 disabled:opacity-50"
+                        className="px-4 py-2.5 border border-amber-500/30 text-amber-500 text-xs font-bold uppercase hover:bg-amber-500/10 transition-all active:scale-95 disabled:opacity-50"
                       >
                         Change
                       </button>
@@ -694,23 +598,28 @@ export default function StockMindChat() {
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="bg-[#121418] border border-white/10 p-2 focus-within:border-[#00FF85]/50 transition-all">
 
-              {/* FILE PREVIEW CHIPS */}
+            {/* RAG context banner */}
+            {totalSessionFiles > 0 && !chat.hitlPending && (
+              <div className="mb-2 flex items-center gap-2 px-3 py-1.5 bg-[#00FF85]/5 border border-[#00FF85]/15 text-[10px] text-[#00FF85]/70 font-mono">
+                <Cpu size={10} />
+                {totalSessionFiles} file{totalSessionFiles > 1 ? 's' : ''} in RAG context — included automatically
+              </div>
+            )}
+
+            <div className="bg-[#121418] border border-white/10 p-2 focus-within:border-[#00FF85]/50 transition-all">
               <AnimatePresence>
                 {attachedFiles.length > 0 && (
                   <div className="flex flex-wrap gap-2 p-2 mb-2 border-b border-white/5">
                     {attachedFiles.map((file) => (
                       <motion.div
                         key={file.id}
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
+                        initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}
                         className="flex items-center gap-2 px-2 py-1 bg-[#00FF85]/10 border border-[#00FF85]/20 text-[#00FF85]"
                       >
                         <FileIcon size={12} />
                         <span className="text-[10px] font-mono font-bold truncate max-w-[100px]">{file.name}</span>
-                        <button onClick={() => removeAttachedFile(file.id)} className="hover:text-white">
+                        <button onClick={() => uploadHook.removeFile(file.id)} className="hover:text-white">
                           <X size={12} />
                         </button>
                       </motion.div>
@@ -720,30 +629,25 @@ export default function StockMindChat() {
               </AnimatePresence>
 
               <div className="flex items-end gap-2">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-3 text-white/40 hover:text-[#00FF85] transition-colors"
-                >
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="p-3 text-white/40 hover:text-[#00FF85] transition-colors">
                   <Paperclip size={20} />
                 </button>
                 <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileAttach}
-                  multiple
-                  className="hidden"
-                  accept=".pdf,.csv,.xlsx,.txt,.docx"
+                  type="file" ref={fileInputRef} onChange={handleFileAttach}
+                  multiple className="hidden" accept=".pdf,.csv,.xlsx,.txt,.docx"
                 />
                 <textarea
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
                   }}
-                  placeholder="Ask about a stock, market trend, or upload a report..."
+                  placeholder={
+                    totalSessionFiles > 0
+                      ? `Ask about the ${totalSessionFiles} uploaded file${totalSessionFiles > 1 ? 's' : ''}...`
+                      : "Ask about a stock, market trend, or upload a report..."
+                  }
                   className="flex-1 bg-transparent border-none focus:ring-0 text-sm py-3 font-mono resize-none min-h-[44px] max-h-[200px]"
                   rows={1}
                 />
