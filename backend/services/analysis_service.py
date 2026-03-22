@@ -496,10 +496,13 @@ async def process_query(
     return ChatResponse(response=result.get("text", ""))
 
 
-async def confirm_hitl(
-    run_id: str, confirmed: bool, corrected_ticker: str | None = None
+async def process_confirm(
+    run_id: str,
+    session_id: str,
+    confirmed: bool,
+    corrected_ticker: str | None = None,
 ) -> ChatResponse:
-    """Resume a paused HITL run after user confirmation."""
+    """Resume a paused HITL run after user confirmation — used by POST /api/confirm."""
     loop = asyncio.get_event_loop()
 
     result = await loop.run_in_executor(
@@ -520,3 +523,19 @@ async def confirm_hitl(
         )
 
     return ChatResponse(response=result.get("text", ""))
+
+
+# Keep old name as alias so nothing else breaks
+confirm_hitl = process_confirm
+
+
+# ---------------------------------------------------------------------------
+# Reset helper — called by DELETE /api/reset
+# ---------------------------------------------------------------------------
+
+def clear_team_cache() -> None:
+    """
+    Clear all in-memory paused-run state.
+    Called by the /api/reset endpoint when the user clicks Exit.
+    """
+    _paused_runs.clear()

@@ -25,7 +25,9 @@ def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
         upsert(documents, content_hash)   ← new Agno
         upsert(documents)                 ← old Agno
 
-    So our wrapper must accept (*args, **kwargs) to capture both forms.
+    Documents may be Agno Document objects OR plain strings depending on the
+    Agno version / reader used.  We guard all attribute assignments accordingly.
+
     Calling this multiple times on the same instance is safe (idempotent guard).
     """
     vector_db = knowledge.vector_db
@@ -45,10 +47,18 @@ def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
             documents = kwargs.pop("documents", [])
             rest_args = ()
 
-        # Stamp each document with a content_hash attribute if absent
+        # Stamp each document with a content_hash attribute if absent.
+        # Guard against plain str objects — you cannot set attributes on str.
         for doc in documents:
+            if isinstance(doc, str):
+                # Raw string — nothing to stamp; the combined hash below covers it
+                continue
             if not getattr(doc, "content_hash", None):
-                doc.content_hash = _content_hash(getattr(doc, "content", "") or "")
+                try:
+                    doc.content_hash = _content_hash(getattr(doc, "content", "") or "")
+                except (AttributeError, TypeError):
+                    # Some object types don't allow attribute assignment — skip silently
+                    pass
 
         try:
             # Try calling with original positional/keyword args unchanged
@@ -57,7 +67,10 @@ def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
             # If that failed, try the opposite arity:
             # new API needs content_hash, old API doesn't want it
             combined_hash = _content_hash(
-                "".join(getattr(d, "content", "") or "" for d in documents)
+                "".join(
+                    (doc if isinstance(doc, str) else getattr(doc, "content", "")) or ""
+                    for doc in documents
+                )
             )
             try:
                 # New API: pass content_hash as second positional arg
@@ -113,7 +126,7 @@ def ingest_files_for_session(
 
         # --- read & embed using knowledge.insert() ---
         try:
-            logger.info("Ingesting '%s' (id=%s) from %s", filename, file_id, path)
+            logger.info("Adding content from path, %s, None,\n     %s, None", file_id, path)
             knowledge.insert(path=path, reader=_pdf_reader)
             upload_service.mark_indexed(file_id)
             logger.info("Successfully indexed '%s'", filename)
