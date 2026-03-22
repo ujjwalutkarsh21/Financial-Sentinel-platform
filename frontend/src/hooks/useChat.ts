@@ -1,5 +1,4 @@
-// === useChat hook — manages chat state, SSE streaming, and ThoughtTrace ===
-
+// frontend/src/hooks/useChat.ts
 import { useState, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as chatService from '../services/chatService';
@@ -12,57 +11,45 @@ export function useChat(sessionId: string) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ── Thought Trace state ────────────────────────────────────────────
   const [thoughtSteps, setThoughtSteps] = useState<ThoughtStep[]>([]);
   const [totalElapsed, setTotalElapsed] = useState<number | undefined>(undefined);
   const [isTraceCollapsed, setIsTraceCollapsed] = useState(false);
   const streamStartRef = useRef<number>(0);
 
-  // ── HITL state ─────────────────────────────────────────────────────
   const [hitlPending, setHitlPending] = useState(false);
   const [hitlTicker, setHitlTicker] = useState('');
   const [hitlRawInput, setHitlRawInput] = useState('');
   const [hitlRunId, setHitlRunId] = useState('');
 
   const abortStreamRef = useRef<(() => void) | null>(null);
-
-  // ── helpers ──────────────────────────────────────────────────────────
+  // true once onDone/onHitl/onError fires — blocks any stale onToken callbacks
+  const doneRef = useRef(false);
 
   function iconForThought(text: string, eventType?: string): ThoughtStep['icon'] {
-    if (!eventType && !text) return 'brain';
     const t = (eventType ?? text).toLowerCase();
     if (t.includes('search') || t.includes('news') || t.includes('duckduck')) return 'search';
-    if (t.includes('data') || t.includes('market') || t.includes('database') || t.includes('db')) return 'database';
+    if (t.includes('data') || t.includes('market') || t.includes('database')) return 'database';
     if (t.includes('done') || t.includes('finish') || t.includes('complete') || t.includes('valid')) return 'check';
     if (t.includes('error') || t.includes('fail')) return 'error';
     return 'brain';
   }
 
   function pushThoughtStep(text: string, eventType?: string) {
-    setThoughtSteps(prev => {
-      const updated = prev.map(s =>
-        s.status === 'active' ? { ...s, status: 'done' as const } : s,
-      );
-      return [
-        ...updated,
-        {
-          id: uuidv4(),
-          type: 'thought' as const,
-          message: text,
-          icon: iconForThought(text, eventType),
-          status: 'active' as const,
-        },
-      ];
-    });
+    setThoughtSteps(prev => [
+      ...prev.map(s => s.status === 'active' ? { ...s, status: 'done' as const } : s),
+      {
+        id: uuidv4(), type: 'thought' as const,
+        message: text, icon: iconForThought(text, eventType),
+        status: 'active' as const,
+      },
+    ]);
   }
 
   function finaliseThoughtSteps() {
     setThoughtSteps(prev =>
-      prev.map(s => s.status === 'active' ? { ...s, status: 'done' as const } : s),
+      prev.map(s => s.status === 'active' ? { ...s, status: 'done' as const } : s)
     );
   }
-
-  // ── handleResponse — used by non-streaming /confirm path ─────────────
 
   const handleResponse = useCallback((response: any) => {
     if (response.hitl_pending) {
@@ -70,42 +57,30 @@ export function useChat(sessionId: string) {
       setHitlTicker(response.hitl_ticker || '');
       setHitlRawInput(response.hitl_raw_input || '');
       setHitlRunId(response.hitl_run_id || '');
-      setMessages(prev => [
-        ...prev,
-        {
-          id: response.id ?? uuidv4(),
-          role: 'assistant',
-          content: response.text,
-          timestamp: new Date(response.timestamp ?? Date.now()),
-        },
-      ]);
+      setMessages(prev => [...prev, {
+        id: response.id ?? uuidv4(), role: 'assistant',
+        content: response.text, timestamp: new Date(response.timestamp ?? Date.now()),
+      }]);
     } else {
       setHitlPending(false);
-      setMessages(prev => [
-        ...prev,
-        {
-          id: response.id ?? uuidv4(),
-          role: 'assistant',
-          content: response.text,
-          timestamp: new Date(response.timestamp ?? Date.now()),
-          sources: response.sources,
-          isStreaming: false,
-        },
-      ]);
+      setMessages(prev => [...prev, {
+        id: response.id ?? uuidv4(), role: 'assistant',
+        content: response.text, timestamp: new Date(response.timestamp ?? Date.now()),
+        sources: response.sources, isStreaming: false,
+      }]);
     }
   }, []);
-
-  // ── sendStreamingMessage ──────────────────────────────────────────────
 
   const sendStreamingMessage = useCallback(
     async (text: string, attachmentIds?: string[]) => {
       if (!text.trim() && (!attachmentIds || attachmentIds.length === 0)) return;
 
-      // Snapshot IDs now — before any state mutations
-      const safeAttachmentIds = (attachmentIds ?? []).filter(Boolean);
+      // Snapshot IDs now — before any state mutations clear staged files
+      const safeIds = (attachmentIds ?? []).filter(Boolean);
 
       abortStreamRef.current?.();
       abortStreamRef.current = null;
+      doneRef.current = false;
 
       setThoughtSteps([]);
       setTotalElapsed(undefined);
@@ -128,83 +103,72 @@ export function useChat(sessionId: string) {
         { id: assistantId, role: 'assistant', content: '', timestamp: new Date(), isStreaming: true },
       ]);
 
-      // Use a ref to track accumulated content so onDone doesn't double-set
-      let accumulated = '';
-      // Track whether onDone has fired to avoid stale closures overwriting
-      let doneReceived = false;
+      const abort = chatService.streamMessage(text, sessionId, safeIds, {
+        onThought: (t, et) => pushThoughtStep(t, et),
 
-      const abort = chatService.streamMessage(
-        text,
-        sessionId,
-        safeAttachmentIds,
-        {
-          onThought: (thoughtText, eventType) => {
-            pushThoughtStep(thoughtText, eventType);
-          },
-
-          onToken: (chunk) => {
-            if (doneReceived) return; // don't update after done
-            accumulated += chunk;
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === assistantId ? { ...m, content: accumulated, isStreaming: true } : m,
-              ),
-            );
-          },
-
-          onHitl: ({ run_id, ticker, raw_input, message: hitlMsg }) => {
-            doneReceived = true;
-            finaliseThoughtSteps();
-            setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === assistantId ? { ...m, content: hitlMsg, isStreaming: false } : m,
-              ),
-            );
-            setHitlPending(true);
-            setHitlTicker(ticker);
-            setHitlRawInput(raw_input);
-            setHitlRunId(run_id);
-            setIsLoading(false);
-            setIsStreaming(false);
-          },
-
-          onDone: (fullText) => {
-            doneReceived = true;
-            finaliseThoughtSteps();
-            setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
-            // Use fullText from server if available, otherwise use accumulated tokens.
-            // The server's fullText is the canonical source — it's already deduplicated.
-            const final = fullText || accumulated;
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === assistantId
-                  ? { ...m, content: final, isStreaming: false }
-                  : m,
-              ),
-            );
-            setIsLoading(false);
-            setIsStreaming(false);
-            abortStreamRef.current = null;
-          },
-
-          onError: (msg) => {
-            doneReceived = true;
-            finaliseThoughtSteps();
-            setError(msg);
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === assistantId
-                  ? { ...m, content: `⚠️ Error: ${msg}. Please try again.`, isStreaming: false }
-                  : m,
-              ),
-            );
-            setIsLoading(false);
-            setIsStreaming(false);
-            abortStreamRef.current = null;
-          },
+        onToken: (chunk) => {
+          // Drop any tokens that arrive after the stream is complete
+          if (doneRef.current) return;
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantId
+                ? { ...m, content: m.content + chunk, isStreaming: true }
+                : m
+            )
+          );
         },
-      );
+
+        onHitl: ({ run_id, ticker, raw_input, message: hitlMsg }) => {
+          doneRef.current = true;
+          finaliseThoughtSteps();
+          setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantId ? { ...m, content: hitlMsg, isStreaming: false } : m
+            )
+          );
+          setHitlPending(true);
+          setHitlTicker(ticker);
+          setHitlRawInput(raw_input);
+          setHitlRunId(run_id);
+          setIsLoading(false);
+          setIsStreaming(false);
+        },
+
+        onDone: (fullText) => {
+          doneRef.current = true;
+          finaliseThoughtSteps();
+          setTotalElapsed((Date.now() - streamStartRef.current) / 1000);
+          // Use server's canonical assembled text as source of truth.
+          // Falls back to whatever tokens accumulated if fullText is empty.
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantId
+                ? { ...m, content: fullText || m.content, isStreaming: false }
+                : m
+            )
+          );
+          setIsLoading(false);
+          setIsStreaming(false);
+          abortStreamRef.current = null;
+        },
+
+        onError: (msg) => {
+          doneRef.current = true;
+          finaliseThoughtSteps();
+          setError(msg);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === assistantId
+                ? { ...m, content: `⚠️ Error: ${msg}. Please try again.`, isStreaming: false }
+                : m
+            )
+          );
+          setIsLoading(false);
+          setIsStreaming(false);
+          abortStreamRef.current = null;
+        },
+      });
 
       abortStreamRef.current = abort;
     },
@@ -214,8 +178,6 @@ export function useChat(sessionId: string) {
 
   const sendMessage = sendStreamingMessage;
 
-  // ── confirmTicker ─────────────────────────────────────────────────────
-
   const confirmTicker = useCallback(
     async (confirmed: boolean, correctedTicker?: string) => {
       if (!hitlRunId) return;
@@ -223,19 +185,18 @@ export function useChat(sessionId: string) {
       setHitlPending(false);
       try {
         const response = await chatService.confirmTicker({
-          session_id: sessionId,
-          run_id: hitlRunId,
-          confirmed,
-          corrected_ticker: correctedTicker,
+          session_id: sessionId, run_id: hitlRunId,
+          confirmed, corrected_ticker: correctedTicker,
         });
         handleResponse(response);
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : 'Confirmation failed';
-        setError(errMsg);
-        setMessages(prev => [
-          ...prev,
-          { id: uuidv4(), role: 'assistant', content: `⚠️ Error: ${errMsg}. Please try again.`, timestamp: new Date() },
-        ]);
+        const msg = err instanceof Error ? err.message : 'Confirmation failed';
+        setError(msg);
+        setMessages(prev => [...prev, {
+          id: uuidv4(), role: 'assistant',
+          content: `⚠️ Error: ${msg}. Please try again.`,
+          timestamp: new Date(),
+        }]);
       } finally {
         setIsLoading(false);
       }
@@ -243,34 +204,24 @@ export function useChat(sessionId: string) {
     [sessionId, hitlRunId, handleResponse],
   );
 
-  // ── misc helpers ──────────────────────────────────────────────────────
-
   const loadHistory = useCallback(async () => {
     try {
       const history = await chatService.getHistory(sessionId);
-      setMessages(
-        history.map(h => ({
-          id: h.id,
-          role: h.role as 'user' | 'assistant',
-          content: h.content,
-          timestamp: new Date(h.timestamp),
-          sources: h.sources,
-        })),
-      );
-    } catch {
-      // best-effort
-    }
+      setMessages(history.map(h => ({
+        id: h.id, role: h.role as 'user' | 'assistant',
+        content: h.content, timestamp: new Date(h.timestamp), sources: h.sources,
+      })));
+    } catch { /* best-effort */ }
   }, [sessionId]);
 
   const markStreamingComplete = useCallback((messageId: string) => {
-    setMessages(prev =>
-      prev.map(m => (m.id === messageId ? { ...m, isStreaming: false } : m)),
-    );
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, isStreaming: false } : m));
   }, []);
 
   const clearMessages = useCallback(() => {
     abortStreamRef.current?.();
     abortStreamRef.current = null;
+    doneRef.current = false;
     setMessages([]);
     setThoughtSteps([]);
     setTotalElapsed(undefined);
@@ -280,23 +231,10 @@ export function useChat(sessionId: string) {
   }, []);
 
   return {
-    messages,
-    setMessages,
-    isLoading,
-    error,
-    isStreaming,
-    sendStreamingMessage,
-    sendMessage,
-    thoughtSteps,
-    totalElapsed,
-    isTraceCollapsed,
-    setIsTraceCollapsed,
-    hitlPending,
-    hitlTicker,
-    hitlRawInput,
-    confirmTicker,
-    loadHistory,
-    markStreamingComplete,
-    clearMessages,
+    messages, setMessages, isLoading, error,
+    isStreaming, sendStreamingMessage, sendMessage,
+    thoughtSteps, totalElapsed, isTraceCollapsed, setIsTraceCollapsed,
+    hitlPending, hitlTicker, hitlRawInput, confirmTicker,
+    loadHistory, markStreamingComplete, clearMessages,
   };
 }
