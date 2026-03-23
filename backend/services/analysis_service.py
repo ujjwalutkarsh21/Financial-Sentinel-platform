@@ -182,24 +182,23 @@ async def stream_orchestrator(
 
             content = getattr(ev, "content", None)
             if content and isinstance(content, str):
-                # Heuristic: If it has 'Delta' in it, it's a stream chunk.
-                # If it has 'Content' or 'Response' but NOT 'Delta', it's a snapshot.
-                is_delta = "Delta" in event_type
-                is_snapshot = ("Content" in event_type or "Response" in event_type) and not is_delta
-
-                if is_delta:
-                    # Delta chunk: forward to client, update running total
-                    final_text += content
-                    yield _sse("token", {"text": content})
-                elif is_snapshot:
-                    # This is likely a full snapshot. Store it but do NOT stream it.
+                # SMART DEDUPLICATION:
+                # 1. If content is an exact match or substing, it's a redundant snapshot.
+                if content in final_text and len(content) > 10:
+                    continue
+                
+                # 2. If content is a 'SUPERSET' (it starts with our current text),
+                # only stream the new suffix. This handles snapshots that grow.
+                if len(content) > len(final_text) and content.startswith(final_text):
+                    new_part = content[len(final_text):]
                     final_text = content
-                else:
-                    # Ambiguous content: safer to append to final_text but not stream
-                    # unless we are sure it's a delta. 
-                    # For now, let's treat unknown content as delta to be safe.
-                    final_text += content
-                    yield _sse("token", {"text": content})
+                    if new_part:
+                        yield _sse("token", {"text": new_part})
+                    continue
+
+                # 3. Otherwise, it's likely a standard delta or a brand new chunk.
+                final_text += content
+                yield _sse("token", {"text": content})
                 continue
 
             # Reasoning / thought steps
