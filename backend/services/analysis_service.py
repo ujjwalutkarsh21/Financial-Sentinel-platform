@@ -31,6 +31,9 @@ _HIDDEN_EVENT_TYPES = {
 _SNAPSHOT_EVENT_TYPES = {
     "RunResponseContent",
     "RunResponse",
+    "AgentRunResponseContent",
+    "MemberAgentResponseContent",
+    "TeamRunResponseContent",
 }
 
 _paused_runs: dict[str, dict] = {}
@@ -155,6 +158,7 @@ async def stream_orchestrator(
                 break
 
             event_type: str = getattr(ev, "event", "") or ""
+            # logger.info("DEBUG: Event Type: %s", event_type) # TEMPORARY DEBUG
 
             # HITL pause
             if getattr(ev, "is_paused", False):
@@ -178,12 +182,22 @@ async def stream_orchestrator(
 
             content = getattr(ev, "content", None)
             if content and isinstance(content, str):
-                if event_type in _SNAPSHOT_EVENT_TYPES:
-                    # Snapshot: store for 'done' event but DO NOT forward to client
-                    final_text = content
-                    continue
-                else:
+                # Heuristic: If it has 'Delta' in it, it's a stream chunk.
+                # If it has 'Content' or 'Response' but NOT 'Delta', it's a snapshot.
+                is_delta = "Delta" in event_type
+                is_snapshot = ("Content" in event_type or "Response" in event_type) and not is_delta
+
+                if is_delta:
                     # Delta chunk: forward to client, update running total
+                    final_text += content
+                    yield _sse("token", {"text": content})
+                elif is_snapshot:
+                    # This is likely a full snapshot. Store it but do NOT stream it.
+                    final_text = content
+                else:
+                    # Ambiguous content: safer to append to final_text but not stream
+                    # unless we are sure it's a delta. 
+                    # For now, let's treat unknown content as delta to be safe.
                     final_text += content
                     yield _sse("token", {"text": content})
                 continue

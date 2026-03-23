@@ -7,10 +7,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useChat } from './hooks/useChat';
 import { useUpload } from './hooks/useUpload';
 import { useSession } from './hooks/useSession';
+import { useAutoScroll } from './hooks/useAutoScroll';
 import {
   Send, Paperclip, X, FileText, Table,
   File as FileIcon, LogOut, Plus, TrendingUp,
-  AlertCircle, Cpu, Database, Globe
+  AlertCircle, Cpu, Database, Globe, ArrowDown
 } from 'lucide-react';
 import { resetSession as apiResetSession } from './services/chatService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -107,10 +108,31 @@ const DataTable = ({ headers, rows }: { headers: string[]; rows: string[][] }) =
   </div>
 );
 
+const ScrollToBottomButton = ({ onClick, visible }: { onClick: () => void; visible: boolean }) => (
+  <AnimatePresence>
+    {visible && (
+      <motion.button
+        initial={{ opacity: 0, scale: 0.5, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.5, y: 20 }}
+        onClick={onClick}
+        className="fixed bottom-32 right-8 z-40 p-3 bg-white/5 border border-white/10 text-[#00FF85] backdrop-blur-md hover:bg-white/10 transition-all active:scale-90"
+      >
+        <ArrowDown size={20} />
+      </motion.button>
+    )}
+  </AnimatePresence>
+);
+
 export default function StockMindChat() {
   const session = useSession();
   const chat = useChat(session.activeSessionId);
   const uploadHook = useUpload(session.activeSessionId);
+
+  const { scrollRef, scrollToBottom, isNearBottomRef } = useAutoScroll(
+    [chat.messages, chat.isStreaming],
+    30
+  );
 
   const messages = chat.messages;
   const setMessages = chat.setMessages;
@@ -130,7 +152,6 @@ export default function StockMindChat() {
   const [isExiting, setIsExiting] = useState(false);
   const [agentStatus, setAgentStatus] = useState({ data: false, research: false, rag: false });
   const firstMessageSentRef = useRef<Set<string>>(new Set());
-  const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Restore persisted session ──────────────────────────────────────
@@ -147,10 +168,6 @@ export default function StockMindChat() {
       session.saveSnapshot(messages, uploadedFiles);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   // ── getAllFileIds: staged + already uploaded in this session ──────
@@ -447,6 +464,7 @@ export default function StockMindChat() {
 
         {/* CHAT AREA */}
         <div
+          ref={scrollRef}
           className="flex-1 overflow-y-auto p-6 space-y-8 relative"
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
@@ -508,13 +526,13 @@ export default function StockMindChat() {
 
                   {msg.data?.metrics && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
-                      {msg.data.metrics.map((m: any, i: number) => (
+                      {(msg.data as any).metrics.map((m: any, i: number) => (
                         <MetricCard key={i} {...m} />
                       ))}
                     </div>
                   )}
 
-                  {msg.data?.table && <DataTable {...msg.data.table} />}
+                  {msg.data?.table && <DataTable {...(msg.data as any).table} />}
 
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-white/5">
@@ -545,7 +563,10 @@ export default function StockMindChat() {
               )}
             </React.Fragment>
           ))}
-          <div ref={chatEndRef} />
+          <ScrollToBottomButton
+            onClick={scrollToBottom}
+            visible={!isNearBottomRef.current}
+          />
         </div>
 
         {/* INPUT AREA */}

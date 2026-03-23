@@ -1,7 +1,7 @@
 // frontend/src/hooks/useAutoScroll.ts
 import { useEffect, useRef, useCallback } from 'react';
 
-export function useAutoScroll(deps: unknown[], threshold = 120) {
+export function useAutoScroll(deps: unknown[], threshold = 30) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const isNearBottomRef = useRef(true);
 

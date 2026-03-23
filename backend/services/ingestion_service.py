@@ -82,13 +82,13 @@ def _patch_vector_db_upsert(knowledge: Knowledge) -> None:
         skipped = before - len(documents)
         if skipped:
             logger.warning(
-                "Dropped %d empty document(s) before embedding "
+                "Dropped %d empty/whitespace document(s) before embedding "
                 "(prevents Gemini 'empty Part' 400 error).",
                 skipped,
             )
 
         if not documents:
-            logger.warning("All documents were empty — nothing to upsert.")
+            logger.warning("All documents in this batch were empty — skipping upsert.")
             return None
 
         # Stamp content_hash
@@ -152,12 +152,26 @@ def _patch_embedder(knowledge: Knowledge) -> None:
     if _orig_usage:
         def _safe_get_embedding_and_usage(text: str, *a, **kw):
             if not (text or "").strip():
-                logger.warning(
-                    "Blocked empty string from reaching Gemini embedder (get_embedding_and_usage)."
-                )
+                logger.warning("Blocked empty string from reaching Gemini (get_embedding_and_usage).")
                 return None, None
             return _orig_usage(text, *a, **kw)
         embedder.get_embedding_and_usage = _safe_get_embedding_and_usage
+
+    # Patch get_embeddings (BATCH - Plural)
+    _orig_batch = getattr(embedder, "get_embeddings", None)
+    if _orig_batch:
+        def _safe_get_embeddings(texts: list[str], *a, **kw):
+            # Pass through but filter empty ones in the list
+            # Note: Gemini still needs a non-empty list. 
+            # If the library sends [""], we must drop it.
+            filtered = [t for t in texts if (t or "").strip()]
+            if not filtered:
+                logger.warning("Blocked batch of empty strings from reaching Gemini (get_embeddings).")
+                return []
+            if len(filtered) < len(texts):
+                logger.warning("Filtered out %d empty strings from batch for Gemini.", len(texts) - len(filtered))
+            return _orig_batch(filtered, *a, **kw)
+        embedder.get_embeddings = _safe_get_embeddings
 
     embedder._embed_patched = True
     logger.debug("Patched embedder with empty-string guard.")
@@ -256,25 +270,22 @@ def ingest_files_for_session(
             warnings.append(msg)
             continue
 
-        # ── Verify rows were actually inserted ────────────────────────
-        rows_after = _count_rows(knowledge)
-        new_rows = rows_after - rows_before
+        # ── Verify table is not empty ────────────────────────
+        rows_final = _count_rows(knowledge)
 
-        if new_rows == 0:
+        if rows_final == 0:
             msg = (
-                f"'{filename}' was processed but no searchable text was extracted. "
-                "It is likely a scanned/image-based PDF. "
-                "Please upload a text-based version for RAG analysis."
+                f"'{filename}' was processed but the knowledge base is still empty. "
+                "It might be a scanned PDF or contains no extractable text."
             )
-            logger.warning("0 new rows inserted for '%s'.", filename)
+            logger.warning("No rows found in table after processing '%s'.", filename)
             warnings.append(msg)
-            # Don't mark indexed — user should re-upload a proper PDF
             continue
 
         upload_service.mark_indexed(file_id)
         logger.info(
-            "Successfully indexed '%s' — %d new row(s) (total=%d).",
-            filename, new_rows, rows_after,
+            "Successfully processed '%s' (Total rows in table: %d).",
+            filename, rows_final,
         )
 
     return warnings
