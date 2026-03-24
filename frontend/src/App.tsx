@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ThoughtTrace } from './components/ThoughtTrace';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { v4 as uuidv4 } from 'uuid';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -58,9 +59,16 @@ const StreamingMessage = ({ content, isStreaming, onStreamDone }: {
     if (!isStreaming && onStreamDone) onStreamDone();
   }, [isStreaming, onStreamDone]);
 
+  // ReactMarkdown is very strict about spacing. We pre-process the text to 
+  // ensure lists and tables have proper blank lines before them so they render as blocks.
+  const processedContent = content
+    .replace(/([^\n])\n(-|\*|\d+\.)/g, '$1\n\n$2') // Ensure blank line before lists
+    .replace(/([^\n])\n\|/g, '$1\n\n|')            // Ensure blank line before tables
+    .replace(/\|([^\n])\n/g, '|\n\n');             // Ensure blank line after tables (sometimes helps)
+
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{processedContent}</ReactMarkdown>
       {isStreaming && (
         <span className="inline-block w-1.5 h-4 bg-[#00FF85] ml-1 animate-pulse align-middle" />
       )}
@@ -513,16 +521,27 @@ export default function StockMindChat() {
                     ? "bg-[#121418] border-l-2 border-[#00FF85]"
                     : "bg-[#0E1014] border border-white/5"
                 )}>
-                  {/* ✅ Single render path — no Typewriter duplication */}
-                  <StreamingMessage
-                    content={msg.content}
-                    isStreaming={!!msg.isStreaming}
-                    onStreamDone={() => {
-                      setMessages(prev =>
-                        prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m)
-                      );
-                    }}
-                  />
+                  {/* Show spinner while waiting, full content on done */}
+                  {msg.role === 'assistant' && msg.isStreaming && !msg.content ? (
+                    <div className="flex items-center gap-3 text-white/40">
+                      <div className="flex gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00FF85] animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00FF85] animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00FF85] animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                      <span className="text-xs font-mono">Agents working…</span>
+                    </div>
+                  ) : (
+                    <StreamingMessage
+                      content={msg.content}
+                      isStreaming={!!msg.isStreaming}
+                      onStreamDone={() => {
+                        setMessages(prev =>
+                          prev.map(m => m.id === msg.id ? { ...m, isStreaming: false } : m)
+                        );
+                      }}
+                    />
+                  )}
 
                   {msg.data?.metrics && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
@@ -550,11 +569,24 @@ export default function StockMindChat() {
                 </span>
               </motion.div>
 
-              {msg.role === 'assistant' && idx === messages.length - 1 && (isAgentStreaming || thoughtSteps.length > 0) && (
+              {/* Thought Trace: shown AFTER user message, BEFORE assistant response */}
+              {msg.role === 'user' && idx === messages.length - 2 && thoughtSteps.length > 0 && (
                 <div className="mr-auto w-full max-w-[85%] lg:max-w-[70%] mt-2">
                   <ThoughtTrace
                     steps={thoughtSteps}
-                    isStreaming={isAgentStreaming}
+                    isStreaming={isStreaming}
+                    totalElapsed={totalElapsed}
+                    isCollapsed={isTraceCollapsed}
+                    onToggleCollapse={() => setIsTraceCollapsed((v: boolean) => !v)}
+                  />
+                </div>
+              )}
+              {/* Also show while waiting (user msg is still last, no assistant yet) */}
+              {msg.role === 'user' && idx === messages.length - 1 && isStreaming && (
+                <div className="mr-auto w-full max-w-[85%] lg:max-w-[70%] mt-2">
+                  <ThoughtTrace
+                    steps={thoughtSteps}
+                    isStreaming={true}
                     totalElapsed={totalElapsed}
                     isCollapsed={isTraceCollapsed}
                     onToggleCollapse={() => setIsTraceCollapsed((v: boolean) => !v)}

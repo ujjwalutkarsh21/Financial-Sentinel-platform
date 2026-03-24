@@ -10,7 +10,7 @@
   color: #00FF85;
   font-weight: 700;
   margin-top: 1.5em;
-  margin-bottom: 0.5em;
+  margin-bottom: 0.75em;
 }
 
 .markdown-body h1 { font-size: 1.5em; }
@@ -19,7 +19,7 @@
 
 .markdown-body p {
   margin-top: 0;
-  margin-bottom: 1em;
+  margin-bottom: 1.25em;
 }
 
 .markdown-body strong {
@@ -37,7 +37,7 @@
 .markdown-body ol { list-style-type: decimal; }
 
 .markdown-body li {
-  margin-bottom: 0.25em;
+  margin-bottom: 0.5em;
 }
 
 .markdown-body table {

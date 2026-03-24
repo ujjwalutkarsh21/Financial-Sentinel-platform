@@ -38,6 +38,8 @@ _SENTINEL_INSTRUCTIONS = [
     "     Each metric (price, RSI, SMA, sentiment score, etc.) appears exactly once.",
     "  3. NEVER display raw unformatted numbers. Format market cap as $4.42T not $4,421,808,291,840.",
     "  4. Your final response is the ONLY thing the user sees. Make it clean and structured.",
+    "  5. ALWAYS leave a full blank line (double newline) between a header (###) and the text below it.",
+    "     Example: `### Header\\n\\nContent`",
     "",
 
     # ════════════════════════════════════════════════════════

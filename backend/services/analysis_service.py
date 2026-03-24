@@ -21,7 +21,7 @@ _USER_ID = "api_user"
 _HIDDEN_EVENT_TYPES = {
     "ToolCallStarted", "ToolCallCompleted", "ToolExecution",
     "ToolExecutionStarted", "ToolExecutionCompleted",
-    "AgentRunStarted", "AgentRunCompleted", "AgentRunResponse",
+    "AgentRunCompleted", "AgentRunResponse",
     "MemberAgentResponseStarted", "MemberAgentResponseCompleted",
     "TeamMemberResponse",
 }
@@ -158,7 +158,12 @@ async def stream_orchestrator(
                 break
 
             event_type: str = getattr(ev, "event", "") or ""
-            # logger.info("DEBUG: Event Type: %s", event_type) # TEMPORARY DEBUG
+            agent_name_ev = getattr(ev, "agent", None) or getattr(ev, "team", None) or ""
+            content_ev = getattr(ev, "content", None)
+            logger.info("[EVT] type=%r agent=%r content_len=%s content_preview=%r",
+                        event_type, agent_name_ev,
+                        len(content_ev) if isinstance(content_ev, str) else None,
+                        (content_ev or "")[:80] if isinstance(content_ev, str) else None)
 
             # HITL pause
             if getattr(ev, "is_paused", False):
@@ -182,15 +187,28 @@ async def stream_orchestrator(
 
             content = getattr(ev, "content", None)
             if content and isinstance(content, str) and content.strip():
-                # Collect ALL content events — do NOT stream them live.
-                # Member agents (Market, News, Sentiment) each emit their own full
-                # response text, which pollutes the UI with raw intermediate data.
-                # The Team Leader's final synthesis also arrives as a content event.
-                # We keep the LONGEST non-empty text seen, which will be the
-                # most complete final answer. It is delivered to the client once
-                # via the 'done' event below.
-                if len(content) > len(final_text):
-                    final_text = content
+                # Fix: In coordinate mode, the Team Leader emits 'TeamRunContent' as tiny delta
+                # tokens (length 2-4 bytes). We MUST accumulate them.
+                # Member agents emit full snapshots or their own deltas under different event names.
+                # Because the Team Leader runs last, we can simply accumulate TeamRunContent.
+                if event_type in ("TeamRunContent", "RunResponseDeltaContent", "RunResponseContent"):
+                    # If this is a very long string, it might be a snapshot.
+                    if len(content) > max(100, len(final_text)):
+                        # Only yield what's strictly new if it's a growing snapshot
+                        new_part = content[len(final_text):] if content.startswith(final_text) else content
+                        final_text = content
+                        if new_part:
+                            yield _sse("token", {"text": new_part})
+                    else:
+                        # Failsafe: if the previous text ends with an alphanumeric character
+                        # and the new text is a capitalized word (like 'NVDA'), add a space. 
+                        # This prevents the "SnapshotA" bug caused by bad LLM tokenization.
+                        if final_text and final_text[-1].isalnum() and content and content[0].isupper():
+                            final_text += " "
+                            yield _sse("token", {"text": " "})
+                            
+                        final_text += content 
+                        yield _sse("token", {"text": content})
                 continue
 
             # Reasoning / thought steps
@@ -199,20 +217,20 @@ async def stream_orchestrator(
                 yield _sse("thought", {"text": reasoning})
                 continue
 
-            # Named lifecycle events → thought trace labels
-            if event_type and event_type not in ("RunResponseContent", "RunResponseDeltaContent"):
-                if event_type in _HIDDEN_EVENT_TYPES:
-                    continue
-                label = (
-                    event_type
-                    .replace("TeamRun", "").replace("AgentRun", "").replace("Run", "")
-                ).strip()
-                agent_name = getattr(ev, "agent", None) or getattr(ev, "team", None) or ""
-                if label and label not in ("", "Response", "Content", "DeltaContent"):
-                    yield _sse("thought", {
-                        "text": f"{label}{f' · {agent_name}' if agent_name else ''}",
-                        "event_type": event_type,
-                    })
+            # Named lifecycle events → emit friendly agent-name labels only
+            # We care about: when a member agent STARTS its run (not model-level noise)
+            agent_name = getattr(ev, "agent", None) or getattr(ev, "team", None) or ""
+
+            # Emit a thought step when a named agent starts (various Agno event names)
+            _AGENT_START_EVENTS = {
+                "AgentRunStarted", "TeamMemberAgentStarted", "MemberAgentStarted",
+                "Started", "AgentStarted",
+            }
+            if event_type in _AGENT_START_EVENTS and agent_name:
+                yield _sse("thought", {
+                    "text": agent_name,
+                    "event_type": "AgentRunStarted",
+                })
     finally:
         await fut
 
