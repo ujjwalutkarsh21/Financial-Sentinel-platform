@@ -18,7 +18,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ThoughtTrace } from './components/ThoughtTrace';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
 import { v4 as uuidv4 } from 'uuid';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -49,6 +48,56 @@ interface Message {
   hitl?: { type: 'ticker_confirmation'; ticker: string };
 }
 
+/**
+ * Normalizes LLM streaming output so ReactMarkdown renders it correctly.
+ * Uses regex on the raw string so it can handle patterns that cross line boundaries.
+ */
+function normalizeMarkdown(text: string): string {
+  let t = text;
+
+  // 1. Heading not at start of line → inject \n\n before it
+  //    e.g. "text### Heading" → "text\n\n### Heading"
+  t = t.replace(/([^\n])(#{1,6} )/g, '$1\n\n$2');
+
+  // 2. Split known heading titles from merged inline content.
+  //    The LLM sometimes emits "### Risk ProfileNVDA carries..." all on one line (no \n).
+  //    We detect each known section title and forcibly split content that follows it.
+  const KNOWN_HEADINGS = [
+    'Financial Snapshot', 'Market Pulse', 'Risk Profile',
+    'Technical Picture', 'News & Sentiment', 'PDF Insights',
+    'Right for You', 'Two Quick Questions',
+  ];
+  for (const title of KNOWN_HEADINGS) {
+    // Match the heading line up to and including the title, then split off what follows.
+    const re = new RegExp(`(#{1,6}[^\\n]*?${title}[^\\n]{0,2}?)([ ]?[A-Z|\\*\\-][^#])`, 'g');
+    t = t.replace(re, '$1\n\n$2');
+  }
+
+  // 3. Single newline after a heading → ensure double newline
+  //    e.g. "### Heading\nBody" → "### Heading\n\nBody"
+  t = t.replace(/(#{1,6} [^\n]+)\n(?!\n)/g, '$1\n\n');
+
+  // 4. Blank line before the FIRST table row only.
+  //    [^|\n] = preceding char must NOT be | (table row) or \n (already spaced).
+  //    This ensures consecutive table rows stay together (as GFM requires).
+  t = t.replace(/([^|\n])\n(\|)/g, '$1\n\n$2');
+
+  // 5. Blank line before list items
+  t = t.replace(/([^\n])\n([-*+] |\d+\. )/g, '$1\n\n$2');
+
+  // 6. Blank line before horizontal rules
+  t = t.replace(/([^\n])\n(---)/g, '$1\n\n$2');
+
+  // 7. **Bold**Text → **Bold**\n\nText  (sub-section label merged with body)
+  //    e.g. "**Long-term (3-5yr)**If you believe..." → "**Long-term...**\n\nIf you believe..."
+  t = t.replace(/(\*\*[^\*\n]+\*\*)([A-Z][a-z])/g, '$1\n\n$2');
+
+  // 8. Collapse 3+ newlines to 2
+  t = t.replace(/\n{3,}/g, '\n\n');
+
+  return t;
+}
+
 // Simple streaming cursor component — no Typewriter, no duplication
 const StreamingMessage = ({ content, isStreaming, onStreamDone }: {
   content: string;
@@ -59,16 +108,11 @@ const StreamingMessage = ({ content, isStreaming, onStreamDone }: {
     if (!isStreaming && onStreamDone) onStreamDone();
   }, [isStreaming, onStreamDone]);
 
-  // ReactMarkdown is very strict about spacing. We pre-process the text to 
-  // ensure lists and tables have proper blank lines before them so they render as blocks.
-  const processedContent = content
-    .replace(/([^\n])\n(-|\*|\d+\.)/g, '$1\n\n$2') // Ensure blank line before lists
-    .replace(/([^\n])\n\|/g, '$1\n\n|')            // Ensure blank line before tables
-    .replace(/\|([^\n])\n/g, '|\n\n');             // Ensure blank line after tables (sometimes helps)
+  const processedContent = normalizeMarkdown(content);
 
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{processedContent}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{processedContent}</ReactMarkdown>
       {isStreaming && (
         <span className="inline-block w-1.5 h-4 bg-[#00FF85] ml-1 animate-pulse align-middle" />
       )}

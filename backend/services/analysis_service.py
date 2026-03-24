@@ -200,14 +200,7 @@ async def stream_orchestrator(
                         if new_part:
                             yield _sse("token", {"text": new_part})
                     else:
-                        # Failsafe: if the previous text ends with an alphanumeric character
-                        # and the new text is a capitalized word (like 'NVDA'), add a space. 
-                        # This prevents the "SnapshotA" bug caused by bad LLM tokenization.
-                        if final_text and final_text[-1].isalnum() and content and content[0].isupper():
-                            final_text += " "
-                            yield _sse("token", {"text": " "})
-                            
-                        final_text += content 
+                        final_text += content
                         yield _sse("token", {"text": content})
                 continue
 
