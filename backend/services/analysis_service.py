@@ -144,7 +144,7 @@ async def stream_orchestrator(
 
     fut = loop.run_in_executor(None, _worker)
 
-    # Track the most recent full snapshot (for the 'done' event)
+    # Track the most complete response seen across all agent events
     final_text = ""
 
     try:
@@ -181,24 +181,16 @@ async def stream_orchestrator(
                 continue
 
             content = getattr(ev, "content", None)
-            if content and isinstance(content, str):
-                # SMART DEDUPLICATION:
-                # 1. If content is an exact match or substing, it's a redundant snapshot.
-                if content in final_text and len(content) > 10:
-                    continue
-                
-                # 2. If content is a 'SUPERSET' (it starts with our current text),
-                # only stream the new suffix. This handles snapshots that grow.
-                if len(content) > len(final_text) and content.startswith(final_text):
-                    new_part = content[len(final_text):]
+            if content and isinstance(content, str) and content.strip():
+                # Collect ALL content events — do NOT stream them live.
+                # Member agents (Market, News, Sentiment) each emit their own full
+                # response text, which pollutes the UI with raw intermediate data.
+                # The Team Leader's final synthesis also arrives as a content event.
+                # We keep the LONGEST non-empty text seen, which will be the
+                # most complete final answer. It is delivered to the client once
+                # via the 'done' event below.
+                if len(content) > len(final_text):
                     final_text = content
-                    if new_part:
-                        yield _sse("token", {"text": new_part})
-                    continue
-
-                # 3. Otherwise, it's likely a standard delta or a brand new chunk.
-                final_text += content
-                yield _sse("token", {"text": content})
                 continue
 
             # Reasoning / thought steps
