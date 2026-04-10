@@ -1,4 +1,30 @@
-# System Architecture & Data Flow
+# 🛡️ Financial Sentinel
+
+**Financial Sentinel** is an advanced AI-powered investment analysis platform that leverages a multi-agent orchestration framework to deliver deep, data-driven financial insights. By integrating real-time market data, automated news sentiment analysis, and sophisticated RAG (Retrieval-Augmented Generation) over proprietary documents, it empowers investors to make high-conviction decisions with transparency and precision.
+
+---
+
+### 🤝 Collaboration
+This project was developed in collaboration with my colleague intern, **Meet Joshi** ([@spidermanMJ17](https://github.com/spidermanMJ17)).
+
+---
+
+#### **🚀 Key Features**
+*   **Multi-Agent Intelligence:** Orchestrated by a central "Team Lead," specialist agents execute targeted tasks (Market Data, News, Research, Sentiment, Validation).
+*   **Advanced RAG Pipeline:** Efficiently ingests, chunks, and embeds financial documents into a high-performance **LanceDB** vector store for instant retrieval.
+*   **Thought Tracing:** A transparent UI that visualizes the AI’s reasoning process and agent coordination in real-time.
+*   **Human-In-The-Loop (HITL):** Interactive validation steps for ticker confirmations and critical decision branches.
+*   **Real-Time Data:** Live connectivity with Yahoo Finance and DuckDuckGo for up-to-the-minute market insights.
+
+#### **🛠️ Tech Stack**
+*   **Frontend:** Vite, React 19, Tailwind CSS 4, Motion (Framer), SSE.
+*   **Backend:** FastAPI, Python, Agno (Multi-Agent Framework).
+*   **LLMs:** Azure OpenAI (GPT-4o/Reasoning) & Google Gemini (Embeddings).
+*   **Storage:** LanceDB (Vector Database) & SQLite (Agent Memory).
+
+---
+
+# 🗺️ System Architecture & Data Flow
 
 This document provides a comprehensive high-level view of how the Financial Sentinel platform works, from the React frontend to the Agno multi-agent backend.
 

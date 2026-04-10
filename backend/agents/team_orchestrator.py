@@ -4,7 +4,6 @@ from pathlib import Path
 
 from agno.agent import Agent
 from agno.team import Team
-from agno.team.mode import TeamMode
 from agno.models.azure import AzureOpenAI
 from agno.db.sqlite import SqliteDb
 from dotenv import load_dotenv
@@ -154,7 +153,7 @@ def create_financial_sentinel(research_agent: Agent) -> Team:
 
     return Team(
         name="Corp8AI Financial Sentinel",
-        mode=TeamMode.coordinate,
+        mode="coordinate",
         db=db,
         update_memory_on_run=False,
         read_chat_history=True,

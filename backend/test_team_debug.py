@@ -1,6 +1,6 @@
 """Quick debug test to check if Groq can handle Team tool calls."""
 from agno.team import Team
-from agno.team.mode import TeamMode
+
 from agno.agent import Agent
 from agno.models.groq import Groq
 from dotenv import load_dotenv
@@ -17,7 +17,7 @@ test_agent = Agent(
 
 test_team = Team(
     name="Test Team",
-    mode=TeamMode.coordinate,
+    mode="coordinate",
     model=Groq(id="openai/gpt-oss-120b"),
     members=[test_agent],
     instructions="Delegate any question to the Echo Agent.",

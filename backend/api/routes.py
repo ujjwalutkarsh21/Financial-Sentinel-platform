@@ -89,7 +89,8 @@ async def reset_all():
     analysis_service.clear_team_cache()
     clear_all_confirmed_tickers()
     try:
-        agno_db.clear()
+        agno_db.drop()
+        agno_db.create()
     except Exception:
         pass
     return {"status": "ok"}
